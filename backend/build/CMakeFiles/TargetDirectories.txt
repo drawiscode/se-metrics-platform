@@ -1,0 +1,4 @@
+E:/study/SoftwareLab/lab/se-metrics-platform/backend/build/CMakeFiles/sqlite3.dir
+E:/study/SoftwareLab/lab/se-metrics-platform/backend/build/CMakeFiles/devinsight_backend.dir
+E:/study/SoftwareLab/lab/se-metrics-platform/backend/build/CMakeFiles/edit_cache.dir
+E:/study/SoftwareLab/lab/se-metrics-platform/backend/build/CMakeFiles/rebuild_cache.dir
