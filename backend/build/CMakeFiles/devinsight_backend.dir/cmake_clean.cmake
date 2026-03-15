@@ -1,6 +1,8 @@
 file(REMOVE_RECURSE
   "CMakeFiles/devinsight_backend.dir/src/main.cpp.obj"
   "CMakeFiles/devinsight_backend.dir/src/main.cpp.obj.d"
+  "CMakeFiles/devinsight_backend.dir/src/routes.cpp.obj"
+  "CMakeFiles/devinsight_backend.dir/src/routes.cpp.obj.d"
   "devinsight_backend.exe"
   "devinsight_backend.exe.manifest"
   "devinsight_backend.pdb"

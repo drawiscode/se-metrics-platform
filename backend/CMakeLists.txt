@@ -17,6 +17,7 @@ target_include_directories(sqlite3 PUBLIC
 
 add_executable(devinsight_backend
     src/main.cpp
+    src/routes.cpp
 )
 
 target_link_libraries(devinsight_backend PRIVATE sqlite3)

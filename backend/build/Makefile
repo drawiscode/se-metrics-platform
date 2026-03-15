@@ -165,6 +165,30 @@ src/main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles\devinsight_backend.dir\build.make CMakeFiles/devinsight_backend.dir/src/main.cpp.s
 .PHONY : src/main.cpp.s
 
+src/routes.obj: src/routes.cpp.obj
+.PHONY : src/routes.obj
+
+# target to build an object file
+src/routes.cpp.obj:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\devinsight_backend.dir\build.make CMakeFiles/devinsight_backend.dir/src/routes.cpp.obj
+.PHONY : src/routes.cpp.obj
+
+src/routes.i: src/routes.cpp.i
+.PHONY : src/routes.i
+
+# target to preprocess a source file
+src/routes.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\devinsight_backend.dir\build.make CMakeFiles/devinsight_backend.dir/src/routes.cpp.i
+.PHONY : src/routes.cpp.i
+
+src/routes.s: src/routes.cpp.s
+.PHONY : src/routes.s
+
+# target to generate assembly for a file
+src/routes.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles\devinsight_backend.dir\build.make CMakeFiles/devinsight_backend.dir/src/routes.cpp.s
+.PHONY : src/routes.cpp.s
+
 third_party/sqlite/sqlite3.obj: third_party/sqlite/sqlite3.c.obj
 .PHONY : third_party/sqlite/sqlite3.obj
 
@@ -202,6 +226,9 @@ help:
 	@echo ... src/main.obj
 	@echo ... src/main.i
 	@echo ... src/main.s
+	@echo ... src/routes.obj
+	@echo ... src/routes.i
+	@echo ... src/routes.s
 	@echo ... third_party/sqlite/sqlite3.obj
 	@echo ... third_party/sqlite/sqlite3.i
 	@echo ... third_party/sqlite/sqlite3.s
