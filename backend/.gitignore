@@ -1,0 +1,6 @@
+build/
+config/
+data/
+scripts/
+test/
+third_party/
