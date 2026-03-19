@@ -1,4 +1,4 @@
-// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/util.h
+﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/util.h
 #pragma once
 
 #include <string>

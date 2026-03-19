@@ -1,29 +1,3 @@
-# CMake build directories
-#/build/
-#/cmake-build-*/
-
-# VS / VSCode
-#/.vs/
-#/.vscode/*
-#!.vscode/extensions.json
-#!.vscode/settings.json
-#!.vscode/launch.json
-#!.vscode/tasks.json
-
-# Compiled binaries
-#*.exe
-#*.dll
-#*.lib
-#*.pdb
-#*.obj
-
-# Logs / DB / Secrets
-#*.log
-#*.db
-#config/*token*
-#config/*secret*
-#config/github-token.txt
-
-# OS
-#.DS_Store
-#Thumbs.db
+﻿config/
+data/
+scripts/

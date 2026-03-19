@@ -1,4 +1,4 @@
-// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/github_client.h
+﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/github_client.h
 #pragma once
 
 #include <string>

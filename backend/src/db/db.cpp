@@ -1,4 +1,4 @@
-// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/db.cpp
+﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/db.cpp
 #include "db.h"
 
 #include <stdexcept>

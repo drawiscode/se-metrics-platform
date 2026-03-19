@@ -1,4 +1,4 @@
-// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/util.cpp
+﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/util.cpp
 #include "util.h"
 
 #include <cstdlib>

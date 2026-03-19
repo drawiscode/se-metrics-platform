@@ -1,7 +1,32 @@
+
 # 基于 AI 驱动的软件工程一体化度量与协作平台  
 基于 AI 驱动的软件工程一体化度量与协作平台  
 目标：帮助团队**快速接手/优化/持续开发**已有项目，通过“数据度量 + AI 分析解读 + 看板闭环任务”提升工程质量与协作效率。
 
+---
+## 环境配置相关
+(1)在backend目录下面创建一个config/config.env文件，在里面填写如下字段：
+DEVINSIGHT_DB=你实际的data/devinsight文件所在绝对路径
+PORT=8080
+GITHUB_TOKEN=你实际从github上面拿到的token
+
+(2)第三方库依赖下载:你需要通过vcpkg下载
+sqlite3
+nlohmann-json
+cpp-httplib
+openssl
+四个依赖库到本机，同时根据你具体vcpkg的下载路径来更改CMakeLists.txt的路径设置，这里建议你直接把vcpkg下载到C盘，即C：,否则你可能需要更改CMakeLists的以下内容：
+target_include_directories(devinsight_backend PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    C:/vcpkg/installed/x64-windows/include 
+)
+同时考虑到直接下载得到的sqlite3貌似不支持mingw,建议你使用MSVC来进行编译。
+
+(3)你的所有被编译的文件应该以UTF-8 with BOM的形式保存，否则你可能通不过MSVC的编译，会报很奇怪的错误，导致你链接不到别的头文件和第三方库
+
+(4)你选择的工具包应该是amd64而不是x86(如果你完全按照我的环境配置)
+
+(5).vscode的settings.json里面选择你实际的CMake编译器
 ---
 
 ## 1. 项目概述

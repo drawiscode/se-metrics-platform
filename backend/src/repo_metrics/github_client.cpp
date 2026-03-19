@@ -1,4 +1,4 @@
-// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/github_client.cpp
+﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/github_client.cpp
 #include "github_client.h"
 
 #include <httplib.h>
@@ -33,7 +33,8 @@ GitHubResponse github_get_repo(const std::string& full_name, const std::string& 
     const std::string path = "/repos/" + full_name;
 
     // HTTPS client
-    httplib::SSLClient cli("api.github.com", 443);
+   // httplib::SSLClient cli("api.github.com", 443);
+    httplib::Client cli("api.github.com", 443);
     cli.set_follow_location(true);
 
     httplib::Headers headers;
