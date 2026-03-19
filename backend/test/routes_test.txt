@@ -1,0 +1,68 @@
+﻿以下指令均在终端powershell里面运行
+
+$BaseUrl = "http://127.0.0.1:8080"
+
+(1) GET /api/health
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/health"
+
+(2)POST /api/projects?name=..
+$proj = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/projects?name=proj_e2e_1"
+$pid1 = $proj.id
+$pid1
+
+(3)GET /api/projects
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/projects"
+
+(4)PUT /api/projects/{id}?name=...
+Invoke-RestMethod -Method Put -Uri "$BaseUrl/api/projects/$pid?name=proj_e2e_1_renamed"
+
+(5)DELETE /api/projects/{id}
+Invoke-RestMethod -Method Delete -Uri "$BaseUrl/api/projects/$pid"
+
+(6)Repos：POST / GET列表 / GET(id) / PUT(enabled) / DELETE
+$repo = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/repos?full_name=octocat/Hello-World"
+$rid1 = $repo.id
+$rid1
+
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos"
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/$rid1"
+
+
+(7) Repo Sync：POST /api/repos/{rid}/sync（关键）
+try {
+  $sync = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/repos/$rid1/sync"
+  $sync
+  $snapshotId = $sync.snapshot_id
+  $snapshotId
+} catch {
+  # 打印更详细的错误（比如 GitHub 403 / 网络问题）
+  $_.Exception.Message
+  if ($_.Exception.Response) {
+    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+    $reader.ReadToEnd()
+  }
+  throw
+}
+
+
+(8) GET /api/repos/{rid}/snapshots  查看拉取结果是否入库
+$snapshots = Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/$rid1/snapshots"
+$snapshots
+
+# 断言：至少有一条 snapshot（若你 sync 成功）
+if ($snapshots.items.Count -lt 1) { throw "No snapshots found for repo $rid1" }
+
+# 可选：打印最新一条
+$snapshots.items | Select-Object -First 1 | Format-List
+
+(9) 负例：repo 不存在时 sync
+try {
+  Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/repos/999999/sync"
+  throw "Expected failure, but succeeded"
+} catch {
+  $_.Exception.Message
+  if ($_.Exception.Response) {
+    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+    $reader.ReadToEnd()
+  }
+}
