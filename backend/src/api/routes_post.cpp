@@ -212,6 +212,78 @@ static int db_upsert_pullrequest(Db& db, int repo_id, const RepoPullRequestData&
     return rc == SQLITE_DONE ? 1 : 0;
 }
 
+static int db_upsert_release(Db& db, int repo_id, const RepoReleaseData& data)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "INSERT INTO releases(repo_id, tag_name, name, draft, prerelease, published_at, raw_json) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
+        "ON CONFLICT(repo_id, tag_name) DO UPDATE SET "
+        "name=excluded.name, "
+        "draft=excluded.draft, "
+        "prerelease=excluded.prerelease, "
+        "published_at=excluded.published_at, "
+        "raw_json=excluded.raw_json;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        return 0;
+
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_text(stmt, 2, data.tag_name.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (data.name.empty())
+        sqlite3_bind_null(stmt, 3);
+    else
+        sqlite3_bind_text(stmt, 3, data.name.c_str(), -1, SQLITE_TRANSIENT);
+
+    sqlite3_bind_int(stmt, 4, data.draft ? 1 : 0);
+    sqlite3_bind_int(stmt, 5, data.prerelease ? 1 : 0);
+
+    if (data.published_at.empty())
+        sqlite3_bind_null(stmt, 6);
+    else
+        sqlite3_bind_text(stmt, 6, data.published_at.c_str(), -1, SQLITE_TRANSIENT);
+
+    sqlite3_bind_text(stmt, 7, data.raw_json.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 1 : 0;
+}
+
+static int db_upsert_commit(Db& db, int repo_id, const RepoCommitData& data)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "INSERT INTO commits(repo_id, sha, author_login, committed_at, raw_json) "
+        "VALUES (?1, ?2, ?3, ?4, ?5) "
+        "ON CONFLICT(repo_id, sha) DO UPDATE SET "
+        "author_login=excluded.author_login, "
+        "committed_at=excluded.committed_at, "
+        "raw_json=excluded.raw_json;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        return 0;
+
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_text(stmt, 2, data.sha.c_str(), -1, SQLITE_TRANSIENT);
+
+    if (data.author_login.empty())
+        sqlite3_bind_null(stmt, 3);
+    else
+        sqlite3_bind_text(stmt, 3, data.author_login.c_str(), -1, SQLITE_TRANSIENT);
+
+    sqlite3_bind_text(stmt, 4, data.committed_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, data.raw_json.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 1 : 0;
+}
+
+
 
 static bool sync_repo_snapshot(Db& db, int rid, const std::string& full_name, const std::string& token,
                               long long run_id, httplib::Response& res)
@@ -276,6 +348,56 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
 }
 
 
+static bool sync_repo_commits(Db& db,int rid, const std::string& full_name, const std::string& token,
+                            long long run_id, httplib::Response& res,int& upserted_out)
+{
+    upserted_out = 0;
+
+    auto gh_commits = github_list_commits(full_name, token, 100, 1, "", "");
+    std::vector<RepoCommitData> items;
+    std::string err;
+    int http_status = 0;
+
+    if (!parse_repo_commits_from_github(gh_commits, items, err, http_status))
+    {
+        if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+        res.status = 502;
+        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+        return false;
+    }
+
+    for (const auto& it : items)
+    {
+        upserted_out += db_upsert_commit(db, rid, it);
+    }
+    return true;
+}
+
+static bool sync_repo_releases(Db& db,int rid, const std::string& full_name, const std::string& token,
+                            long long run_id, httplib::Response& res,int& upserted_out)
+{
+    upserted_out = 0;
+
+    auto gh_releases = github_list_releases(full_name, token, 100, 1);
+    std::vector<RepoReleaseData> items;
+    std::string err;
+    int http_status = 0;
+
+    if (!parse_repo_releases_from_github(gh_releases, items, err, http_status))
+    {
+        if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+        res.status = 502;
+        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+        return false;
+    }
+
+    for (const auto& it : items)
+    {
+        upserted_out += db_upsert_release(db, rid, it);
+    }
+    return true;
+}
+
 //加载新的信息到各种表中
 static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib::Response& res)
 {
@@ -302,6 +424,12 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     int pulls_upserted = 0;
     if (!sync_repo_pulls(db, rid, full_name, token, run_id, res, pulls_upserted)) return;
    
+    int commits_upserted = 0;
+    if(!sync_repo_commits(db, rid, full_name, token, run_id, res, commits_upserted)) return;
+
+    int releases_upserted = 0;
+    if(!sync_repo_releases(db, rid, full_name, token, run_id, res, releases_upserted)) return;
+
 
     if (run_id > 0) db_finish_sync_run(db, run_id, "ok", "");
 
@@ -309,6 +437,8 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) +
         ",\"issues_upserted\":" + std::to_string(issues_upserted) +
         ",\"pulls_upserted\":" + std::to_string(pulls_upserted) +
+        ",\"commits_upserted\":" + std::to_string(commits_upserted) +
+        ",\"releases_upserted\":" + std::to_string(releases_upserted) +
         "}",
         "application/json");
 }

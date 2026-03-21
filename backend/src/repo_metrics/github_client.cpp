@@ -24,6 +24,40 @@ static int j_get_int_or(const nlohmann::json& obj, const char* key, int defv)
 }
 
 
+static std::string j_get_string_path_or_empty(const nlohmann::json& obj,
+                                             const char* k1,
+                                             const char* k2,
+                                             const char* k3)
+{
+    const nlohmann::json* cur = &obj;
+    if (k1) {
+        auto it1 = cur->find(k1);
+        if (it1 == cur->end() || it1->is_null() || !it1->is_object()) return "";
+        cur = &(*it1);
+    }
+    if (k2) {
+        auto it2 = cur->find(k2);
+        if (it2 == cur->end() || it2->is_null() || !it2->is_object()) return "";
+        cur = &(*it2);
+    }
+    if (k3) {
+        auto it3 = cur->find(k3);
+        if (it3 == cur->end() || it3->is_null()) return "";
+        if (it3->is_string()) return it3->get<std::string>();
+        return it3->dump();
+    }
+    return "";
+}
+
+static int j_get_bool01_or(const nlohmann::json& obj, const char* key, int defv)
+{
+    auto it = obj.find(key);
+    if (it == obj.end() || it->is_null()) return defv;
+    if (it->is_boolean()) return it->get<bool>() ? 1 : 0;
+    if (it->is_number_integer()) return it->get<int>() ? 1 : 0;
+    return defv;
+}
+
 
 // 简易 URL 编码：只对非保留字符以外的字符做 %HH 转义
 static std::string simple_encode_url(const std::string& src)
@@ -284,6 +318,107 @@ bool parse_repo_pulls_from_github(const GitHubResponse& gh,
     return true;
 }
 
+bool parse_repo_commits_from_github(const GitHubResponse& gh,
+                                   std::vector<RepoCommitData>& out,
+                                   std::string& error_out,
+                                   int& http_status_out)
+{
+    http_status_out = gh.status;
+    out.clear();
+
+    if (!gh.error.empty()) { error_out = gh.error; return false; }
+    if (gh.status < 200 || gh.status >= 300) {
+        error_out = "github status " + std::to_string(gh.status);
+        return false;
+    }
+
+    try {
+        auto arr = nlohmann::json::parse(gh.body);
+        if (!arr.is_array()) { error_out = "commits json is not array"; return false; }
+
+        out.reserve(arr.size());
+        for (const auto& it : arr)
+        {
+            if (!it.is_object()) continue;
+
+            RepoCommitData d;
+            d.sha = j_get_string_or_empty(it, "sha");
+            if (d.sha.empty()) continue;
+
+            // author.login 可能为 null（匿名/找不到 github 用户），需要兜底
+            if (it.contains("author") && it["author"].is_object())
+                d.author_login = j_get_string_or_empty(it["author"], "login");
+            else
+                d.author_login.clear();
+
+            // committed_at: commit.committer.date（也可能用 commit.author.date，看你口径）
+            d.committed_at = j_get_string_path_or_empty(it, "commit", "committer", "date");
+            if (d.committed_at.empty()) {
+                // fallback
+                d.committed_at = j_get_string_path_or_empty(it, "commit", "author", "date");
+            }
+
+            d.raw_json = it.dump();
+            out.push_back(std::move(d));
+        }
+    } catch (const std::exception& e) {
+        error_out = std::string("commits json parse failed: ") + e.what();
+        return false;
+    }
+
+    return true;
+}
+
+bool parse_repo_releases_from_github(const GitHubResponse& gh,
+                                    std::vector<RepoReleaseData>& out,
+                                    std::string& error_out,
+                                    int& http_status_out)
+{
+    http_status_out = gh.status;
+    out.clear();
+
+    if (!gh.error.empty()) { error_out = gh.error; return false; }
+    if (gh.status < 200 || gh.status >= 300) {
+        error_out = "github status " + std::to_string(gh.status);
+        return false;
+    }
+
+    try {
+        auto arr = nlohmann::json::parse(gh.body);
+        if (!arr.is_array()) { error_out = "releases json is not array"; return false; }
+
+        out.reserve(arr.size());
+        for (const auto& it : arr)
+        {
+            if (!it.is_object()) continue;
+
+            RepoReleaseData d;
+            d.tag_name = j_get_string_or_empty(it, "tag_name");
+            if (d.tag_name.empty()) continue;
+
+            d.name        = j_get_string_or_empty(it, "name");
+            d.draft       = j_get_bool01_or(it, "draft", 0);
+            d.prerelease  = j_get_bool01_or(it, "prerelease", 0); // 0=非预发布, 1=预发布
+
+            // published_at 可能为 null（draft）
+            d.published_at = j_get_string_or_empty(it, "published_at");
+            d.raw_json     = it.dump();
+
+            out.push_back(std::move(d));
+        }
+    } catch (const std::exception& e) {
+        error_out = std::string("releases json parse failed: ") + e.what();
+        return false;
+    }
+
+    return true;
+}
+
+
+
+
+
+
 // 新增：列出 issues（返回 JSON array 字符串）
 GitHubResponse github_list_issues(const std::string& full_name,
                                  const std::string& token,
@@ -344,6 +479,59 @@ GitHubResponse github_list_pulls(const std::string& full_name,
     // - 或用 /pulls?state=all&sort=updated&direction=desc 然后客户端截断
     // 这里先保留 since 参数但不拼接，避免误导
     (void)since_iso8601;
+
+    return github_get_path(path, token);
+}
+
+
+GitHubResponse github_list_commits(const std::string& full_name,
+                                  const std::string& token,
+                                  int per_page,
+                                  int page,
+                                  const std::string& since_iso8601,
+                                  const std::string& until_iso8601)
+{
+    GitHubResponse out;
+
+    if (!validate_full_name(full_name)) {
+        out.error = "invalid full_name";
+        return out;
+    }
+
+    per_page = std::max(1, std::min(100, per_page));
+    page = std::max(1, page);
+
+    std::string path = "/repos/" + full_name + "/commits?per_page=" +
+                       std::to_string(per_page) + "&page=" + std::to_string(page);
+
+    // commits list 支持 since/until（ISO8601）
+    if (!since_iso8601.empty()) {
+        path += "&since=" + simple_encode_url(since_iso8601);
+    }
+    if (!until_iso8601.empty()) {
+        path += "&until=" + simple_encode_url(until_iso8601);
+    }
+
+    return github_get_path(path, token);
+}
+
+GitHubResponse github_list_releases(const std::string& full_name,
+                                   const std::string& token,
+                                   int per_page,
+                                   int page)
+{
+    GitHubResponse out;
+
+    if (!validate_full_name(full_name)) {
+        out.error = "invalid full_name";
+        return out;
+    }
+
+    per_page = std::max(1, std::min(100, per_page));
+    page = std::max(1, page);
+
+    const std::string path = "/repos/" + full_name + "/releases?per_page=" +
+                             std::to_string(per_page) + "&page=" + std::to_string(page);
 
     return github_get_path(path, token);
 }
