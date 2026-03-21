@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 #include <httplib.h>
-
+#include "db/db.h"
 
 class Db;
 

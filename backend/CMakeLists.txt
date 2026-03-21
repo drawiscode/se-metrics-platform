@@ -8,6 +8,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(devinsight_backend
     src/app/main.cpp
     src/api/routes.cpp
+    src/api/routes_delete.cpp
+    src/api/routes_get.cpp
+    src/api/routes_post.cpp
+    src/api/routes_put.cpp
     src/common/util.cpp
     src/db/db.cpp
     src/repo_metrics/github_client.cpp

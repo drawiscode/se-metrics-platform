@@ -146,29 +146,29 @@ void Db::init_schema()
 
     CREATE TABLE IF NOT EXISTS commits 
     (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        repo_id INTEGER NOT NULL,
-        sha TEXT NOT NULL,
-        author_login TEXT,
-        committed_at TEXT NOT NULL,
-        raw_json TEXT NOT NULL,
-        UNIQUE(repo_id, sha),
-        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        id INTEGER PRIMARY KEY AUTOINCREMENT,--commit标识，自增主键
+        repo_id INTEGER NOT NULL,--外键，表示哪个仓库的commit
+        sha TEXT NOT NULL,--commit的SHA-1哈希，GitHub仓库内唯一
+        author_login TEXT,--commit作者的GitHub登录名，可能为NULL（如匿名提交）
+        committed_at TEXT NOT NULL,--commit的提交时间，来自GitHub API
+        raw_json TEXT NOT NULL,--commit的原始JSON数据，方便后续扩展和调试
+        UNIQUE(repo_id, sha),--确保同一仓库内commit SHA唯一
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE---仓库删除时自动删除相关commit记录
     );
     CREATE INDEX IF NOT EXISTS idx_commits_repo_time ON commits(repo_id, committed_at);
 
      -- Releases
     CREATE TABLE IF NOT EXISTS releases (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        repo_id INTEGER NOT NULL,
-        tag_name TEXT NOT NULL,
-        name TEXT,
-        draft INTEGER NOT NULL DEFAULT 0,
-        prerelease INTEGER NOT NULL DEFAULT 0,
-        published_at TEXT,
-        raw_json TEXT NOT NULL,
-        UNIQUE(repo_id, tag_name),
-        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        id INTEGER PRIMARY KEY AUTOINCREMENT,--release标识，自增主键
+        repo_id INTEGER NOT NULL,--外键，表示哪个仓库的release
+        tag_name TEXT NOT NULL,--release的标签名称，GitHub仓库内唯一
+        name TEXT,--release的名称，可能为NULL
+        draft INTEGER NOT NULL DEFAULT 0,--release是否为草稿，GitHub API的draft字段，0=非草稿，1=草稿
+        prerelease INTEGER NOT NULL DEFAULT 0,--release是否为预发布，GitHub API的prerelease字段，0=非预发布，1=预发布
+        published_at TEXT,--release的发布时间，来自GitHub API，draft状态为NULL
+        raw_json TEXT NOT NULL,--release的原始JSON数据，方便后续扩展和调试
+        UNIQUE(repo_id, tag_name),--确保同一仓库内release tag_name唯一
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE---仓库删除时自动删除相关release记录
     );
     CREATE INDEX IF NOT EXISTS idx_releases_repo_published ON releases(repo_id, published_at);
 
