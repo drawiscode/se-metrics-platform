@@ -34,7 +34,7 @@ target_link_libraries(devinsight_backend PRIVATE
 )
 
 # enable https support in cpp-httplib
-#target_compile_definitions(devinsight_backend PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+target_compile_definitions(devinsight_backend PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 if (WIN32)
   target_link_libraries(devinsight_backend PRIVATE ws2_32 crypt32)

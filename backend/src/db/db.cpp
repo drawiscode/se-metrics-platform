@@ -62,26 +62,11 @@ void Db::init_schema()
     const char* schema = R"SQL(
     PRAGMA foreign_keys = ON;
 
-    CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,--项目标识，自增主键
-        name TEXT NOT NULL UNIQUE,--项目名称
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))--项目创建时间，这里是插入记录的时间
-    );
-
     CREATE TABLE IF NOT EXISTS repos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,--仓库标识，自增主键
         full_name TEXT NOT NULL UNIQUE,--仓库完整名称，如 "owner/repo"
         enabled INTEGER NOT NULL DEFAULT 1,--是否启用同步，1=启用（默认），0=禁用
         created_at TEXT NOT NULL DEFAULT (datetime('now'))--仓库创建时间，这里是插入记录的时间
-    );
-
-    CREATE TABLE IF NOT EXISTS project_repos (
-        project_id INTEGER NOT NULL,--外键，表示属于哪个项目
-        repo_id INTEGER NOT NULL,--表示关联的仓库
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),--这条关系建立的时间
-        PRIMARY KEY (project_id, repo_id),--联合主键，确保同一项目和仓库的关系唯一
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,--项目删除时自动删除相关关系
-        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE---仓库删除时自动删除相关关系
     );
 
     -- Sync runs: record each attempt

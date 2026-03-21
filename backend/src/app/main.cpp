@@ -17,7 +17,7 @@ int main()
         util::load_env_file("E:/study/SoftwareLab/lab/se-metrics-platform/backend/config/config.env");//这里请换成你的实际路径
 
         const std::string db_path = util::get_env("DEVINSIGHT_DB", "data/devinsight.db");
-        std::cout << "[DEBUG] DEVINSIGHT_DB from env or default: " << db_path << "\n";
+       // std::cout << "[DEBUG] DEVINSIGHT_DB from env or default: " << db_path << "\n";
 
         const int port = std::stoi(util::get_env("PORT", "8080"));
 

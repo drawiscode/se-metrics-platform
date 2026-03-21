@@ -15,106 +15,6 @@ static void health_handler(const httplib::Request&, httplib::Response& res)
     res.set_content(R"({"ok":true})", "application/json");
 }
 
-static void post_projects_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    auto name = req.get_param_value("name");
-    if (name.empty())
-    {
-        res.status = 400;
-        res.set_content(R"({"error":"missing name"})", "application/json");
-        return;
-    }
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT INTO projects(name) VALUES (?1);";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE)
-    {
-        res.status = 409;
-        res.set_content(R"({"error":"project exists or insert failed"})", "application/json");
-        return;
-    }
-
-    long long id = sqlite3_last_insert_rowid(sdb);
-    res.set_content(std::string("{\"id\":") + std::to_string(id) + ",\"name\":\"" + util::json_escape(name) + "\"}", "application/json");
-}
-
-static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    auto full_name = req.get_param_value("full_name");
-    if (full_name.empty())
-    {
-        res.status = 400;
-        res.set_content(R"({"error":"missing full_name"})", "application/json");
-        return;
-    }
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT INTO repos(full_name) VALUES (?1);";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_text(stmt, 1, full_name.c_str(), -1, SQLITE_TRANSIENT);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE)
-    {
-        res.status = 409;
-        res.set_content(R"({"error":"repo exists or insert failed"})", "application/json");
-        return;
-    }
-
-    long long id = sqlite3_last_insert_rowid(sdb);
-    res.set_content(std::string("{\"id\":") + std::to_string(id) + ",\"full_name\":\"" + util::json_escape(full_name) + "\"}", "application/json");
-}
-
-static void post_project_repos_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    int project_id = std::stoi(req.matches[1]);
-    int repo_id = std::stoi(req.matches[2]);
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT INTO project_repos(project_id, repo_id) VALUES (?1, ?2);";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_int(stmt, 1, project_id);
-    sqlite3_bind_int(stmt, 2, repo_id);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE)
-    {
-        res.status = 409;
-        res.set_content(R"({"error":"association exists or insert failed"})", "application/json");
-        return;
-    }
-
-    res.set_content(R"({"ok":true})", "application/json");
-}
-
 static void get_repos_handler(Db& db, const httplib::Request&, httplib::Response& res)
 {
     sqlite3* sdb = db.handle();
@@ -148,226 +48,6 @@ static void get_repos_handler(Db& db, const httplib::Request&, httplib::Response
     res.set_content(out, "application/json");
 }
 
-static void get_projects_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT id, name FROM projects ORDER BY id DESC LIMIT 200;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-
-    std::string out = R"({"items":[)";
-    bool first = true;
-    while (sqlite3_step(stmt) == SQLITE_ROW)
-    {
-        if (!first) out += ",";
-        first = false;
-        int id = sqlite3_column_int(stmt, 0);
-        const unsigned char* nm = sqlite3_column_text(stmt, 1);
-
-        out += "{\"id\":" + std::to_string(id)
-            + ",\"name\":\"" + util::json_escape(nm ? (const char*)nm : "") + "\""
-            + "}";
-    }
-    out += "]}";
-    sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
-}
-
-static void get_project_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    int project_id = std::stoi(req.matches[1]);
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT id, name FROM projects WHERE id = ?1;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_int(stmt, 1, project_id);
-
-    if (sqlite3_step(stmt) != SQLITE_ROW)
-    {
-        sqlite3_finalize(stmt);
-        res.status = 404;
-        res.set_content(R"({"error":"project not found"})", "application/json");
-        return;
-    }
-
-    int id = sqlite3_column_int(stmt, 0);
-    const unsigned char* nm = sqlite3_column_text(stmt, 1);
-
-    std::string out = "{\"id\":" + std::to_string(id)
-        + ",\"name\":\"" + util::json_escape(nm ? (const char*)nm : "") + "\""
-        + "}";
-
-    sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
-}
-
-static void put_project_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    int pid = std::stoi(req.matches[1]);
-    auto name = req.get_param_value("name");
-    if (name.empty())
-    {
-        res.status = 400;
-        res.set_content(R"({"error":"missing name"})", "application/json");
-        return;
-    }
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "UPDATE projects SET name=?1 WHERE id=?2;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 2, pid);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db step failed"})", "application/json");
-        return;
-    }
-
-    if (sqlite3_changes(sdb) == 0)
-    {
-        res.status = 404;
-        res.set_content(R"({"error":"project not found"})", "application/json");
-        return;
-    }
-
-    res.set_content(std::string("{\"id\":") + std::to_string(pid) + ",\"name\":\"" + util::json_escape(name) + "\"}", "application/json");
-}
-
-static void delete_project_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    int pid = std::stoi(req.matches[1]);
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "DELETE FROM projects WHERE id=?1;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_int(stmt, 1, pid);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db step failed"})", "application/json");
-        return;
-    }
-
-    if (sqlite3_changes(sdb) == 0)
-    {
-        res.status = 404;
-        res.set_content(R"({"error":"project not found"})", "application/json");
-        return;
-    }
-
-    res.set_content(R"({"ok":true})", "application/json");
-}
-
-static void get_project_repos_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    int pid = std::stoi(req.matches[1]);
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql =
-        "SELECT r.id, r.full_name, r.enabled "
-        "FROM project_repos pr "
-        "JOIN repos r ON r.id = pr.repo_id "
-        "WHERE pr.project_id = ?1 "
-        "ORDER BY r.id DESC LIMIT 200;";
-
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_int(stmt, 1, pid);
-
-    std::string out = R"({"items":[)";
-    bool first = true;
-    while (sqlite3_step(stmt) == SQLITE_ROW)
-    {
-        if (!first) out += ",";
-        first = false;
-
-        int id = sqlite3_column_int(stmt, 0);
-        const unsigned char* fn = sqlite3_column_text(stmt, 1);
-        int enabled = sqlite3_column_int(stmt, 2);
-
-        out += "{\"id\":" + std::to_string(id)
-            + ",\"full_name\":\"" + util::json_escape(fn ? (const char*)fn : "") + "\""
-            + ",\"enabled\":" + std::to_string(enabled)
-            + "}";
-    }
-    out += "]}";
-    sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
-}
-
-static void delete_project_repo_link_handler(Db& db, const httplib::Request& req, httplib::Response& res)
-{
-    int pid = std::stoi(req.matches[1]);
-    int rid = std::stoi(req.matches[2]);
-
-    sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "DELETE FROM project_repos WHERE project_id=?1 AND repo_id=?2;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
-        return;
-    }
-    sqlite3_bind_int(stmt, 1, pid);
-    sqlite3_bind_int(stmt, 2, rid);
-
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE)
-    {
-        res.status = 500;
-        res.set_content(R"({"error":"db step failed"})", "application/json");
-        return;
-    }
-
-    if (sqlite3_changes(sdb) == 0)
-    {
-        res.status = 404;
-        res.set_content(R"({"error":"link not found"})", "application/json");
-        return;
-    }
-
-    res.set_content(R"({"ok":true})", "application/json");
-}
 
 static void get_repo_handler(Db& db, const httplib::Request& req, httplib::Response& res)
 {
@@ -555,51 +235,96 @@ static long long db_insert_snapshot(Db& db, int repo_id,const std::string& full_
     return sqlite3_last_insert_rowid(sdb);
 }
 
+static bool db_insert_repo(Db& db, const std::string& full_name, long long& new_id)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "INSERT INTO repos(full_name) VALUES (?1);";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, full_name.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) return false;
+    new_id = sqlite3_last_insert_rowid(sdb);
+    return new_id > 0;
+}
 
 
-
-static long long db_insert_issue(Db& db, int repo_id,const std::string& full_name,const RepoIssueData &data)
+// upsert：避免 UNIQUE(repo_id, number) 冲突导致重复同步失败
+static int db_upsert_issue(Db& db, int repo_id, const RepoIssueData& data)
 {
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
     const char* sql =
-        "INSERT INTO pull_requests(repo_id, number, state, title, created_at, updated_at, closed_at, merge_at, author_login, raw_json) "
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
+        "INSERT INTO issues(repo_id, number, state, title, created_at, updated_at, closed_at, comments, author_login, is_pull_request, raw_json) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) "
+        "ON CONFLICT(repo_id, number) DO UPDATE SET "
+        "state=excluded.state, title=excluded.title, created_at=excluded.created_at, updated_at=excluded.updated_at, "
+        "closed_at=excluded.closed_at, comments=excluded.comments, author_login=excluded.author_login, "
+        "is_pull_request=excluded.is_pull_request, raw_json=excluded.raw_json;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
 
-    sqlite3_bind_int(stmt, 1, repo_id);                             // repo_id
-    sqlite3_bind_int(stmt, 2, data.number);                         // number
-    sqlite3_bind_text(stmt, 3, data.state.c_str(), -1, SQLITE_TRANSIENT);        // state
-    sqlite3_bind_text(stmt, 4, data.title.c_str(), -1, SQLITE_TRANSIENT);        // title
-    sqlite3_bind_text(stmt, 5, data.created_at.c_str(), -1, SQLITE_TRANSIENT);   // created_at
-    sqlite3_bind_text(stmt, 6, data.updated_at.c_str(), -1, SQLITE_TRANSIENT);   // updated_at
-    sqlite3_bind_text(stmt, 7,
-                      data.closed_at.empty() ? nullptr : data.closed_at.c_str(),
-                      -1, SQLITE_TRANSIENT);                                      // closed_at
-    sqlite3_bind_int(stmt, 8, data.comments);                                     // comments
-    sqlite3_bind_text(stmt, 9, data.author_login.c_str(), -1, SQLITE_TRANSIENT); // author_login
-    sqlite3_bind_int(stmt, 10, data.is_pull_request ? 1 : 0);                     // is_pull_request
-    sqlite3_bind_text(stmt, 11, data.raw_json.c_str(), -1, SQLITE_TRANSIENT); // raw_json
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_int(stmt, 2, data.number);
+    sqlite3_bind_text(stmt, 3, data.state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, data.title.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, data.created_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, data.updated_at.c_str(), -1, SQLITE_TRANSIENT);
+    if (data.closed_at.empty()) sqlite3_bind_null(stmt, 7);
+    else sqlite3_bind_text(stmt, 7, data.closed_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 8, data.comments);
+    if (data.author_login.empty()) sqlite3_bind_null(stmt, 9);
+    else sqlite3_bind_text(stmt, 9, data.author_login.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 10, data.is_pull_request ? 1 : 0);
+    sqlite3_bind_text(stmt, 11, data.raw_json.c_str(), -1, SQLITE_TRANSIENT);
 
-    int rc = sqlite3_step(stmt);
+    const int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) return -1;
-    return sqlite3_last_insert_rowid(sdb);
+    return rc == SQLITE_DONE ? 1 : 0;
 }
 
-static long long db_insert_pullrequest(Db& db, int repo_id,const std::string& full_name,const RepoPullRequestData &data)
+static int db_upsert_pullrequest(Db& db, int repo_id, const RepoPullRequestData& data)
 {
-    return -1;
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "INSERT INTO pull_requests(repo_id, number, state, title, created_at, updated_at, closed_at, merged_at, author_login, raw_json) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) "
+        "ON CONFLICT(repo_id, number) DO UPDATE SET "
+        "state=excluded.state, title=excluded.title, created_at=excluded.created_at, updated_at=excluded.updated_at, "
+        "closed_at=excluded.closed_at, merged_at=excluded.merged_at, author_login=excluded.author_login, raw_json=excluded.raw_json;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_int(stmt, 2, data.number);
+    sqlite3_bind_text(stmt, 3, data.state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, data.title.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, data.created_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, data.updated_at.c_str(), -1, SQLITE_TRANSIENT);
+    if (data.closed_at.empty()) sqlite3_bind_null(stmt, 7);
+    else sqlite3_bind_text(stmt, 7, data.closed_at.c_str(), -1, SQLITE_TRANSIENT);
+    if (data.merged_at.empty()) sqlite3_bind_null(stmt, 8);
+    else sqlite3_bind_text(stmt, 8, data.merged_at.c_str(), -1, SQLITE_TRANSIENT);
+    if (data.author_login.empty()) sqlite3_bind_null(stmt, 9);
+    else sqlite3_bind_text(stmt, 9, data.author_login.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 10, data.raw_json.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 1 : 0;
 }
 
-static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name, const GitHubResponse& gh, const std::string& token, long long run_id, httplib::Response& res)
+
+static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name, const GitHubResponse& gh, long long run_id, httplib::Response& res)
 {
     RepoSnapshotData data;
     std::string err;
     int http_status = 0;
     //从github的response中解析出snapshot数据，如果失败了就记录错误信息并返回
     //data中存储了stars、forks、open_issues、watchers、pushed_at等信息，以及原始的json字符串，用于插入字符串
-    if (!fetch_repo_snapshot_from_github(gh,full_name, token, data, err, http_status)) 
+    if (!fetch_repo_snapshot_from_github(gh, data, err, http_status)) 
     {
         if (run_id > 0) 
         {
@@ -612,7 +337,7 @@ static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name,
     const long long snapshot_id = db_insert_snapshot(db, rid, full_name, data);
     if (snapshot_id <= 0)
     {
-        std::string err = "db insert snapshot failed";
+        err = "db insert snapshot failed";
         if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
         res.status = 500;
         res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
@@ -621,60 +346,68 @@ static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name,
     return true;
 }
 
-// 加载issues信息到表中
-static bool insert_issue_to_db(Db& db, int rid, const std::string& full_name, const GitHubResponse& gh, const std::string& token, long long run_id, httplib::Response& res)
+
+static bool sync_repo_snapshot(Db& db, int rid, const std::string& full_name, const std::string& token,
+                              long long run_id, httplib::Response& res)
 {
-    RepoIssueData data;
+    auto gh_repo = github_get_repo(full_name, token);
+    return insert_snapshot_to_db(db, rid, full_name, gh_repo, run_id, res);
+}
+
+
+static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, const std::string& token,
+                            long long run_id, httplib::Response& res, int& upserted_out)
+{
+    upserted_out = 0;
+
+    // 先最小实现：只取第一页；后续再做分页 + cursor
+    auto gh_issues = github_list_issues(full_name, token, "all", 100, 1, "");
+    std::vector<RepoIssueData> items;
     std::string err;
     int http_status = 0;
-    if (!fetch_repo_issue_from_github(gh, full_name, token, data,err, http_status))
+
+    if (!parse_repo_issues_from_github(gh_issues, items, err, http_status))
     {
-        if (run_id > 0)
-        {
-            db_finish_sync_run(db, run_id, "error", err);
-        }
-        res.status = (http_status >= 400 && http_status < 600) ? 502 : 502;
+        if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+        res.status = 502;
         res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
         return false;
     }
-    const long long issues_id = db_insert_issue(db, rid, full_name, data);
-    if (issues_id <= 0)
+
+    for (const auto& it : items)
     {
-        std::string err = "db insert issue failed";
-        if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
-        res.status = 500;
-        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
-        return false;
+        // issues 表只存真正的 issue，PR 交给 pulls 表
+        if (it.is_pull_request) continue;
+        upserted_out += db_upsert_issue(db, rid, it);
     }
     return true;
 }
 
-static bool insert_pr_to_db(Db& db, int rid, const std::string& full_name, const GitHubResponse& gh, const std::string& token, long long run_id, httplib::Response& res)
+static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const std::string& token,
+                           long long run_id, httplib::Response& res, int& upserted_out)
 {
-    RepoPullRequestData data;
+    upserted_out = 0;
+
+    auto gh_pulls = github_list_pulls(full_name, token, "all", 100, 1, "");
+    std::vector<RepoPullRequestData> items;
     std::string err;
     int http_status = 0;
-    if (!fetch_repo_pull_from_github(gh, full_name, token, data, err, http_status))
+
+    if (!parse_repo_pulls_from_github(gh_pulls, items, err, http_status))
     {
-        if (run_id > 0)
-        {
-            db_finish_sync_run(db, run_id, "error", err);
-        }
-        res.status = (http_status >= 400 && http_status < 600) ? 502 : 502;
+        if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+        res.status = 502;
         res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
         return false;
     }
-    const long long pr_id = db_insert_pullrequest(db, rid, full_name, data);
-    if (pr_id <= 0)
+
+    for (const auto& it : items)
     {
-        std::string err = "db insert pullrequest failed";
-        if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
-        res.status = 500;
-        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
-        return false;
+        upserted_out += db_upsert_pullrequest(db, rid, it);
     }
     return true;
 }
+
 
 
 //加载新的信息到各种表中
@@ -691,28 +424,27 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     }
 
     const std::string token = util::get_env("GITHUB_TOKEN", "");
-
-    //看下token到底拿到没有
     Judge_GitHub_Token(token);
 
     const long long run_id = db_insert_sync_run(db, rid, "error", "started"); // 先占位，后面会更新
-    (void)run_id;
+ 
+    if (!sync_repo_snapshot(db, rid, full_name, token, run_id, res)) return;
 
-    auto gh = github_get_repo(full_name, token);//得到github的response，里面有status和body等信息，body是json字符串
+    int issues_upserted = 0;
+    if (!sync_repo_issues(db, rid, full_name, token, run_id, res, issues_upserted)) return;
 
-    //加载snapshot的信息到表中
-    if(!insert_snapshot_to_db(db, rid, full_name, gh, token, run_id, res)){return;}
-
-    // 加载issues的信息到表中
-    if(!insert_issue_to_db(db, rid, full_name, gh, token, run_id, res)){return;}
-
-    // 加载PR的信息到表中
-    if(!insert_pr_to_db(db, rid, full_name, gh, token, run_id, res)){return;}
+    int pulls_upserted = 0;
+    if (!sync_repo_pulls(db, rid, full_name, token, run_id, res, pulls_upserted)) return;
+   
 
     if (run_id > 0) db_finish_sync_run(db, run_id, "ok", "");
 
-    res.set_content(std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) + "}",
-                    "application/json");
+     res.set_content(
+        std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) +
+        ",\"issues_upserted\":" + std::to_string(issues_upserted) +
+        ",\"pulls_upserted\":" + std::to_string(pulls_upserted) +
+        "}",
+        "application/json");
 }
 
 
@@ -890,69 +622,47 @@ static void get_repo_health_handler(Db& db, const httplib::Request& req, httplib
     not_implemented(res, "health");
 }
 
+// POST /api/repos：只创建仓库repo，不同步issues等信息
+static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    auto full_name = req.get_param_value("full_name");
+    if (full_name.empty())
+    {
+        res.status = 400;
+        res.set_content(R"({"error":"missing full_name"})", "application/json");
+        return;
+    }
+
+    long long rid_ll = 0;
+    if (!db_insert_repo(db, full_name, rid_ll))
+    {
+        res.status = 409;
+        res.set_content(R"({"error":"repo exists or insert failed"})", "application/json");
+        return;
+    }
+
+    res.set_content(
+        std::string("{\"ok\":true,\"repo_id\":") + std::to_string((int)rid_ll) +
+        ",\"full_name\":\"" + util::json_escape(full_name) + "\"}",
+        "application/json");
+}
+
 
 void register_routes(httplib::Server& app, Db& db)
 {
     app.Get("/api/health", health_handler);
 
-    app.Post("/api/projects",
-             [&db](const httplib::Request& req, httplib::Response& res)
-             {
-                 post_projects_handler(db, req, res);
-             });
 
     app.Post("/api/repos",
              [&db](const httplib::Request& req, httplib::Response& res)
              {
-                 post_repos_handler(db, req, res);
-             });
-
-    app.Post(R"(/api/projects/(\d+)/repos/(\d+))",
-             [&db](const httplib::Request& req, httplib::Response& res)
-             {
-                 post_project_repos_handler(db, req, res);
-             });
+                post_repos_handler(db, req, res); 
+            });
 
     app.Get("/api/repos",
             [&db](const httplib::Request& req, httplib::Response& res)
             {
                 get_repos_handler(db, req, res);
-            });
-
-    app.Get("/api/projects",
-            [&db](const httplib::Request& req, httplib::Response& res)
-            {
-                get_projects_handler(db, req, res);
-            });
-
-    app.Get(R"(/api/projects/(\d+))",
-            [&db](const httplib::Request& req, httplib::Response& res)
-            {
-                get_project_handler(db, req, res);
-            });
-
-    app.Put(R"(/api/projects/(\d+))",
-            [&db](const httplib::Request& req, httplib::Response& res)
-            {
-                put_project_handler(db, req, res);
-            });
-
-    app.Delete(R"(/api/projects/(\d+))",
-            [&db](const httplib::Request& req, httplib::Response& res)
-            {
-                delete_project_handler(db, req, res);
-            });
-
-    app.Get(R"(/api/projects/(\d+)/repos)",
-            [&db](const httplib::Request& req, httplib::Response& res)
-            {
-                get_project_repos_handler(db, req, res);
-            });
-
-    app.Delete(R"(/api/projects/(\d+)/repos/(\d+))",
-            [&db](const httplib::Request& req, httplib::Response& res)
-            {
-                delete_project_repo_link_handler(db, req, res);
             });
 
     app.Get(R"(/api/repos/(\d+))",

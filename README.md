@@ -26,7 +26,7 @@ target_include_directories(devinsight_backend PRIVATE
 
 (4)你选择的工具包应该是amd64而不是x86(如果你完全按照我的环境配置)
 
-(5).vscode的settings.json里面选择你实际的CMake编译器
+(5) .vscode的settings.json里面选择你实际的CMake编译器
 ---
 
 ## 1. 项目概述
