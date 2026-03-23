@@ -1,4 +1,5 @@
-﻿
+﻿set(CMAKE_TOOLCHAIN_FILE "E:/Code/se-metrics-platform/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
 cmake_minimum_required(VERSION 3.20)
 project(devinsight_backend LANGUAGES C CXX)
 
@@ -21,7 +22,7 @@ add_executable(devinsight_backend
 # 让项目内 include "api/..." 之类能找到
 target_include_directories(devinsight_backend PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    C:/vcpkg/installed/x64-windows/include 
+    E:/Code/se-metrics-platform/vcpkg/installed/x64-windows/include 
 )
 
 # vcpkg dependencies
