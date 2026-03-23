@@ -1,14 +1,14 @@
-﻿
-# 基于 AI 驱动的软件工程一体化度量与协作平台  
+﻿# 基于 AI 驱动的软件工程一体化度量与协作平台  
 基于 AI 驱动的软件工程一体化度量与协作平台  
 目标：帮助团队**快速接手/优化/持续开发**已有项目，通过“数据度量 + AI 分析解读 + 看板闭环任务”提升工程质量与协作效率。
 
 ---
 ## 环境配置相关
 (1)在backend目录下面创建一个config/config.env文件，在里面填写如下字段：
-DEVINSIGHT_DB=你实际的data/devinsight文件所在绝对路径
+DEVINSIGHT_DB=你实际的data/devinsight.db文件所在绝对路径
 PORT=8080
-GITHUB_TOKEN=你实际从github上面拿到的token
+GITHUB_TOKEN=你从github上面获得的token
+在CMakeLists.txt中第一行vcpkg路径改为你的实际vcpkg所在路径
 
 (2)第三方库依赖下载:你需要通过vcpkg下载
 sqlite3
