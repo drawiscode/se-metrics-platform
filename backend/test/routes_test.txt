@@ -1,0 +1,27 @@
+﻿以下指令均在终端powershell里面运行
+
+$BaseUrl = "http://127.0.0.1:8080"
+
+# 1 创建仓库（不同步）
+Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/repos?full_name=octocat/Hello-World"
+
+# 删除仓库
+Invoke-RestMethod -Method Delete -Uri "$BaseUrl/api/repos/1"
+
+# 2 同步（写 snapshots/issues/pulls）
+Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/repos/1/sync"
+
+# 3 查看落库 issues
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/issues?limit=20"
+
+
+# 4 针对 items 数组逐条列出所有字段，方便查看对象属性（不被表格截断）
+($resp = Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/issues").items | ForEach-Object { $_ | Format-List -Property * -Force }
+
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/issues" | Select-Object -ExpandProperty items | ForEach-Object { $_ | ConvertTo-Json -Depth 10 -Compress } | Out-File -FilePath .\output\issues\issues_raw.ndjson -Encoding utf8
+
+
+https://github.com/octocat/Hello-World
+
+
+https://api.github.com/repos/octocat/Hello-World

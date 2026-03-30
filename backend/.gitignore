@@ -1,0 +1,9 @@
+build/
+config/config.env
+data/
+scripts/
+.vscode/
+vcpkg/
+*.db
+*.o
+*.exe

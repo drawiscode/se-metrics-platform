@@ -1,0 +1,5 @@
+﻿data/
+scripts/
+build/
+.vscode/
+vcpkg/
