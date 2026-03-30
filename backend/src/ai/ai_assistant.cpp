@@ -1,4 +1,4 @@
-// 2.4(2) AI 问答助手 - 实现
+﻿// 2.4(2) AI 问答助手 - 实现
 #include "ai_assistant.h"
 #include "knowledge_base.h"
 #include "db/db.h"

@@ -356,6 +356,22 @@ static int db_upsert_commit_file(Db& db, int repo_id,  const std::string& sha, c
     }
     if (stmt) { sqlite3_finalize(stmt); stmt = nullptr; }
 
+
+    // 查询 commit_id（不能直接用 repo_id）
+    sqlite3_int64 commit_id = 0;
+    const char* sql_select_commit = "SELECT id FROM commits WHERE repo_id=?1 AND sha=?2 LIMIT 1;";
+    if (sqlite3_prepare_v2(sdb, sql_select_commit, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        sqlite3_bind_int(stmt, 1, repo_id);
+        sqlite3_bind_text(stmt, 2, sha.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+        {
+            commit_id = sqlite3_column_int64(stmt, 0);
+        }
+    }
+    if (stmt) { sqlite3_finalize(stmt); stmt = nullptr; }
+
+    if (commit_id == 0) return false; // 没有找到对应的 commit，返回失败
     // upsert 到 commit_files（以 UNIQUE(commit_id, filename) 为准）
     const char* sql_upsert =
         "INSERT INTO commit_files(commit_id, sha, filename, additions, deletions, changes, committed_at, raw_json) "
@@ -365,7 +381,7 @@ static int db_upsert_commit_file(Db& db, int repo_id,  const std::string& sha, c
 
     if (sqlite3_prepare_v2(sdb, sql_upsert, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
-    sqlite3_bind_int64(stmt, 1, repo_id);
+    sqlite3_bind_int64(stmt, 1, commit_id);
     sqlite3_bind_text(stmt, 2, sha.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, f.filename.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 4, f.additions);

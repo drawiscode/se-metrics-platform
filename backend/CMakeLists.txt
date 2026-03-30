@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # DevInsight Backend - CMakeLists.txt
 # ============================================================
 # 支持两种构建方式:
@@ -7,6 +7,9 @@
 #                             或使用 conda: conda install sqlite openssl nlohmann_json
 # 详见 README.md 环境配置章节
 # ============================================================
+
+
+set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 
 cmake_minimum_required(VERSION 3.20)
 project(devinsight_backend LANGUAGES C CXX)
