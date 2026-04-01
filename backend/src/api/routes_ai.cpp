@@ -1,4 +1,4 @@
-// 2.4 AI 智能分析路由
+﻿// 2.4 AI 智能分析路由
 // 提供知识库构建/检索、AI 问答、对话历史查询接口
 #include "routes.h"
 #include "common/util.h"

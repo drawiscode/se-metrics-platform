@@ -2,6 +2,7 @@
 #include "common/util.h"
 #include <sqlite3.h>
 #include "repo_metrics/github_client.h"
+#include <nlohmann/json.hpp>
 
 static void print_deubg_pages(int pages,std::string prefix)
 {
@@ -13,6 +14,13 @@ static void print_deubg_pages(int pages,std::string prefix)
     std::cerr << prefix << "pages: " << pages << std::endl;
 }
 
+static std::string max_iso8601(const std::string& a, const std::string& b)
+{
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    // GitHub ISO8601 Zulu 时间可用字典序比较
+    return (a < b) ? b : a;
+}
 
 static void get_repo_commits(std::vector<RepoCommitData>& out, Db& db, int rid)
 {
@@ -72,6 +80,53 @@ static bool db_get_repo_full_name(Db& db, int repo_id, std::string& full_name_ou
 }
 
 
+static bool db_get_sync_state(Db& db, int repo_id,
+                              std::string& issues_cursor,
+                              std::string& pulls_cursor,
+                              std::string& commits_cursor,
+                              std::string& releases_cursor)
+{
+    sqlite3* sdb = db.handle();
+    const char* sql =
+        "SELECT issues_updated_cursor, pulls_updated_cursor, commits_since_cursor, releases_cursor "
+        "FROM repo_sync_state WHERE repo_id=?;";
+    sqlite3_stmt* stmt = nullptr;
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, repo_id);
+
+    int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW)
+    {
+        auto col = [&](int i) -> std::string {
+            const unsigned char* t = sqlite3_column_text(stmt, i);
+            return t ? reinterpret_cast<const char*>(t) : "";
+        };
+        issues_cursor = col(0);
+        pulls_cursor = col(1);
+        commits_cursor = col(2);
+        releases_cursor = col(3);
+        sqlite3_finalize(stmt);
+        return true;
+    }
+    sqlite3_finalize(stmt);
+
+    // 没有行则创建
+    const char* ins =
+        "INSERT OR IGNORE INTO repo_sync_state(repo_id, issues_updated_cursor, pulls_updated_cursor, commits_since_cursor, releases_cursor) "
+        "VALUES(?, '', '', '', '');";
+    sqlite3_stmt* ist = nullptr;
+    if (sqlite3_prepare_v2(sdb, ins, -1, &ist, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(ist, 1, repo_id);
+    rc = sqlite3_step(ist);
+    sqlite3_finalize(ist);
+    if (rc != SQLITE_DONE) return false;
+
+    issues_cursor.clear(); pulls_cursor.clear(); commits_cursor.clear(); releases_cursor.clear();
+    return true;
+}
+
+
 static bool db_insert_repo(Db& db, const std::string& full_name, long long& new_id)
 {
     sqlite3* sdb = db.handle();
@@ -113,6 +168,28 @@ static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Res
         "application/json");
 }
 
+static bool db_commit_files_exist_for_sha(Db& db, int repo_id, const std::string& sha)
+{
+    sqlite3* sdb = db.handle();
+    if (!sdb) return false;
+
+    sqlite3_stmt* stmt = nullptr;
+    // 用 sha + repo_id 双保险：commit_files 存 sha，但 sha 在不同 repo 理论上不会冲突，这里仍加 repo 约束到 commits
+    const char* sql =
+        "SELECT 1 "
+        "FROM commit_files cf "
+        "JOIN commits c ON c.id = cf.commit_id "
+        "WHERE c.repo_id=?1 AND cf.sha=?2 "
+        "LIMIT 1;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_text(stmt, 2, sha.c_str(), -1, SQLITE_TRANSIENT);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_ROW;
+}
 
 static long long db_insert_sync_run(Db& db, int repo_id, const std::string& status, const std::string& error)
 {
@@ -198,6 +275,19 @@ static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name,
         return false;
     }
     return true;
+}
+
+static bool db_update_sync_cursor(Db& db, int repo_id, const char* col_name, const std::string& cursor)
+{
+    sqlite3* sdb = db.handle();
+    std::string sql = std::string("UPDATE repo_sync_state SET ") + col_name + "=?, updated_at=datetime('now') WHERE repo_id=?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, cursor.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, repo_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
 }
 
 // upsert：避免 UNIQUE(repo_id, number) 冲突导致重复同步失败
@@ -404,27 +494,31 @@ static bool sync_repo_snapshot(Db& db, int rid, const std::string& full_name, co
 }
 
 
+// ===== 扩展：issues 增量 =====
 static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, const std::string& token,
-                            long long run_id, httplib::Response& res, int& upserted_out,
-                            int page_start, int pages_count)
+                             long long run_id, httplib::Response& res, int& upserted_out,
+                             int page_start, int pages_count,
+                             const std::string& since_cursor,
+                             std::string& new_cursor_out)
 {
     upserted_out = 0;
+    new_cursor_out = since_cursor;
+
     const int per_page = 100;
     int page = std::max(1,page_start);
     int page_end = page_start + pages_count - 1;
 
     while(1)
     {
-        if(page > page_end) break;
+        if (page_end > 0 && page > page_end) break;
 
         //debug 信息
         print_deubg_pages(page,"issues");
+        auto gh_issues = github_list_issues(full_name, token, "all", per_page, page, since_cursor);
 
-        auto gh_issues = github_list_issues(full_name, token, "all", per_page, page, "");
         std::vector<RepoIssueData> items;
         std::string err;
         int http_status = 0;
-
         if (!parse_repo_issues_from_github(gh_issues, items, err, http_status))
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
@@ -433,16 +527,15 @@ static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, cons
             return false;
         }
         
-        if (items.empty())//// 如果当前页没有 items，说明已经到尾
+        if (items.empty())// 如果当前页没有 items，说明已经到尾
         {
             break;
         }
 
         for (const auto& it : items)
         {
-            // issues 表只存真正的 issue，PR 交给 pulls 表
-            if (it.is_pull_request) continue;
             upserted_out += db_upsert_issue(db, rid, it);
+            new_cursor_out = max_iso8601(new_cursor_out, it.updated_at);
         }
     
         if ((int)items.size() < per_page)  // 如果本页少于 per_page，说明已经是最后一页
@@ -455,28 +548,99 @@ static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, cons
 }
 
 
+// ===== 扩展：pulls 增量 增量时走 Search API =====
 static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const std::string& token,
-                           long long run_id, httplib::Response& res, int& upserted_out,
-                           int page_start, int pages_count)
+                            long long run_id, httplib::Response& res, int& upserted_out,
+                            int page_start, int pages_count,
+                            const std::string& since_cursor,
+                            std::string& new_cursor_out)
 {
     upserted_out = 0;
+    new_cursor_out = since_cursor;
+
     const int per_page = 100;
-    int page = std::max(1,page_start);
+
+    // ===== 增量分支：Search API =====
+    if (!since_cursor.empty())
+    {
+        int page = 1;
+        while (1)
+        {
+            // search query：repo:owner/name is:pr updated:>=<cursor>
+            // 注意：cursor 用 ISO8601 Z，可直接拼。这里不加空格以减少 url encode 需求。
+            const std::string q = "repo:" + full_name + " is:pr updated:>=" + since_cursor;
+
+            auto gh = github_search_issues_prs(token, q, per_page, page, "updated", "asc");
+
+            std::string err;
+            int http_status = 0;
+
+            if (!gh.error.empty() || gh.status < 200 || gh.status >= 300)
+            {
+                err = !gh.error.empty() ? gh.error : ("github http " + std::to_string(gh.status));
+                if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+                res.status = 502;
+                res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+                return false;
+            }
+
+            nlohmann::json j;
+            try { j = nlohmann::json::parse(gh.body); }
+            catch (...) 
+            {
+                err = "parse search results failed";
+                if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+                res.status = 502;
+                res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+                return false;
+            }
+
+            if (!j.contains("items") || !j["items"].is_array()) break;
+            const auto& items = j["items"];
+            if (items.empty()) break;
+
+            for (const auto& it : items)
+            {
+                const int number = it.value("number", 0);
+                if (number <= 0) continue;
+
+                // 拉 PR 详情补 merged_at
+                auto gh_pr = github_get_pull(full_name, token, number);
+                RepoPullRequestData pr;
+                if (!parse_pull_from_github_json(gh_pr, pr, err, http_status))
+                {
+                    if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+                    res.status = 502;
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+                    return false;
+                }
+
+                upserted_out += db_upsert_pullrequest(db, rid, pr);
+                new_cursor_out = max_iso8601(new_cursor_out, pr.updated_at);
+            }
+
+            print_deubg_pages(page, "pulls");
+            if ((int)items.size() < per_page) break;
+            page++;
+        }
+        return true;
+    }
+
+    //全量分支
+    int page = std::max(1, page_start);
     int page_end = page_start + pages_count - 1;
 
-    while(1)
+    while (1)
     {
-        if( page > page_end) break;
+        if (page_end > 0 && page > page_end) break;
 
-        //debug 信息
-        print_deubg_pages(page,"pulls");
+        print_deubg_pages(page, "pulls");
+        auto gh = github_list_pulls(full_name, token, "all", per_page, page, since_cursor);
 
-        auto gh_pulls = github_list_pulls(full_name, token, "all", per_page, page, "");
         std::vector<RepoPullRequestData> items;
         std::string err;
         int http_status = 0;
-
-        if (!parse_repo_pulls_from_github(gh_pulls, items, err, http_status))
+        if (!parse_repo_pulls_from_github(gh, items, err, http_status))
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
@@ -484,44 +648,42 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
             return false;
         }
 
-        if (items.empty())//// 如果当前页没有 items，说明已经到尾
-        {
-            break;
-        }
+        if (items.empty()) break;
 
         for (const auto& it : items)
         {
             upserted_out += db_upsert_pullrequest(db, rid, it);
+            new_cursor_out = max_iso8601(new_cursor_out, it.updated_at);
         }
 
-        if ((int)items.size() < per_page)  // 如果本页少于 per_page，说明已经是最后一页
-        {
-            break;
-        }
+        if ((int)items.size() < per_page) break;
         page++;
     }
     return true;
 }
 
 
-static bool sync_repo_commits(Db& db,int rid, const std::string& full_name, const std::string& token,
-                            long long run_id, httplib::Response& res,int& upserted_out,
-                            int page_start, int pages_count)
+// ===== 扩展：commits 增量 =====
+static bool sync_repo_commits(Db& db, int rid, const std::string& full_name, const std::string& token,
+                              long long run_id, httplib::Response& res, int& upserted_out,
+                              int page_start, int pages_count,
+                              const std::string& since_cursor,
+                              std::string& new_since_cursor_out)
 {
     upserted_out = 0;
+    new_since_cursor_out = since_cursor;
+
     const int per_page = 100;
-    int page = std::max(1,page_start);
+    int page = std::max(1, page_start);
     int page_end = page_start + pages_count - 1;
 
-    while(1)
+    while (1)
     {
-        //debug 信息
-       
+        if (page_end > 0 && page > page_end) break;
 
-        if(page_end > 0 && page > page_end) break;
+        print_deubg_pages(page, "commits");
+        auto gh_commits = github_list_commits(full_name, token, per_page, page, since_cursor, "");
 
-         print_deubg_pages(page,"commits");
-        auto gh_commits = github_list_commits(full_name, token, 100, 1, "", "");
         std::vector<RepoCommitData> items;
         std::string err;
         int http_status = 0;
@@ -534,48 +696,45 @@ static bool sync_repo_commits(Db& db,int rid, const std::string& full_name, cons
             return false;
         }
 
-        if (items.empty())//// 如果当前页没有 items，说明已经到尾
-        {
-            break;
-        }
+        if (items.empty()) break;
 
         for (const auto& it : items)
         {
             upserted_out += db_upsert_commit(db, rid, it);
+            new_since_cursor_out = max_iso8601(new_since_cursor_out, it.committed_at);
         }
 
-        if ((int)items.size() < per_page)  // 如果本页少于 per_page，说明已经是最后一页
-        {
-            break;
-        }
+        if ((int)items.size() < per_page) break;
         page++;
     }
     return true;
 }
 
-static bool sync_repo_releases(Db& db,int rid, const std::string& full_name, const std::string& token,
-                            long long run_id, httplib::Response& res,int& upserted_out,
-                            int page_start, int pages_count)
+// ===== 扩展：releases 增量（按 published_at 推进 cursor） =====
+static bool sync_repo_releases(Db& db, int rid, const std::string& full_name, const std::string& token,
+                               long long run_id, httplib::Response& res, int& upserted_out,
+                               int page_start, int pages_count,
+                               const std::string& since_cursor,
+                               std::string& new_cursor_out)
 {
     upserted_out = 0;
+    new_cursor_out = since_cursor;
+
     const int per_page = 100;
-    int page = std::max(1,page_start);
+    int page = std::max(1, page_start);
     int page_end = page_start + pages_count - 1;
 
-    while(1)
+    while (1)
     {
-        //debug 信息
-      
+        if (page_end > 0 && page > page_end) break;
 
-        if(page_end > 0 && page > page_end) break;
+        print_deubg_pages(page, "releases");
+        auto gh = github_list_releases(full_name, token, per_page, page);
 
-          print_deubg_pages(page,"releases");
-        auto gh_releases = github_list_releases(full_name, token, 100, 1);
         std::vector<RepoReleaseData> items;
         std::string err;
         int http_status = 0;
-
-        if (!parse_repo_releases_from_github(gh_releases, items, err, http_status))
+        if (!parse_repo_releases_from_github(gh, items, err, http_status))
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
@@ -583,52 +742,83 @@ static bool sync_repo_releases(Db& db,int rid, const std::string& full_name, con
             return false;
         }
 
-        if (items.empty())//// 如果当前页没有 items，说明已经到尾
-        {
-            break;
-        }
+        if (items.empty()) break;
 
         for (const auto& it : items)
         {
+            // 注意：draft release 可能 published_at 为空
             upserted_out += db_upsert_release(db, rid, it);
+            if (!it.published_at.empty())
+                new_cursor_out = max_iso8601(new_cursor_out, it.published_at);
         }
 
-        if ((int)items.size() < per_page)  // 如果本页少于 per_page，说明已经是最后一页
+        // 增量：如果 cursor 非空，可以提前截断（假设 API 默认按时间倒序，遇到 <=cursor 说明后面更旧）
+        if (!since_cursor.empty())
         {
-            break;
+            bool any_newer = false;
+            for (const auto& it : items)
+            {
+                if (!it.published_at.empty() && it.published_at > since_cursor) { any_newer = true; break; }
+            }
+            if (!any_newer) break;
         }
+
+        if ((int)items.size() < per_page) break;
         page++;
     }
 
     return true;
 }
 
-
-// 新增：按 commits 列表同步 commit files 到 commit_files 表
-// 返回 true 表示过程完成（可能部分失败），total_files_out 为尝试写入的文件数量
+// 增量版：每次只处理“本地 commits 里尚未同步 commit_files 的部分”，并可通过 limit 控制批量
 static bool sync_commit_files(Db& db, int repo_id, const std::string& full_name, const std::string& token,
-                              long long run_id, httplib::Response& res, int& total_files_out)
+                              long long run_id, httplib::Response& res,
+                              int& total_files_out,
+                              int limit_commits /*新增*/)
 {
     total_files_out = 0;
+
     // 获取本地 commits 列表（按时间降序）
     std::vector<RepoCommitData> commits;
     get_repo_commits(commits, db, repo_id);
     if (commits.empty()) return true;
 
-    int count=0;
+    int processed_commits = 0;
+    int scanned = 0;
 
     for (const auto& c : commits)
     {
-        // 请求 GitHub commit 详情（包含 files）
+        scanned++;
 
-        std::cerr<< count << ":sync_commit_files: fetching files for commit " << c.sha << "\n";
+        // 增量：如果这个 sha 已经有 commit_files 记录，则跳过
+        if (db_commit_files_exist_for_sha(db, repo_id, c.sha))
+            continue;
 
-        auto gh = github_get_commit_with_file(full_name, token, c.sha);
+        // batch 限制
+        if (limit_commits > 0 && processed_commits >= limit_commits)
+            break;
+
+        std::cerr << "sync_commit_files: fetching files for commit " << c.sha
+                  << " (processed=" << processed_commits << ", scanned=" << scanned << ")\n";
+
+        GitHubResponse gh;
+        if (!github_get_commit_with_retry(full_name, token, c.sha, gh, 5))// 最多重试五次
+        {
+            std::string err = !gh.error.empty()
+                ? gh.error
+                : ("github status " + std::to_string(gh.status));
+
+            if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+            res.status = 502;
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            return false;
+        }
+
         std::vector<CommitFileData> files;
         std::string err;
         int http_status = 0;
 
-        if(!parse_commit_files_from_github(gh, files, err, http_status))
+        if (!parse_commit_files_from_github(gh, files, err, http_status))
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
@@ -636,12 +826,15 @@ static bool sync_commit_files(Db& db, int repo_id, const std::string& full_name,
             return false;
         }
 
-        for(const auto& f : files)
+        for (const auto& f : files)
         {
             total_files_out++;
             db_upsert_commit_file(db, repo_id, c.sha, f);
         }
+
+        processed_commits++;
     }
+
     return true;
 }
 
@@ -659,8 +852,12 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     }
 
     const std::string token = util::get_env("GITHUB_TOKEN", "");
-    // Judge_GitHub_Token(token);
 
+    //增量模式
+    const std::string mode = req.has_param("mode") ? req.get_param_value("mode") : "incremental";
+    const bool incremental = (mode != "full");
+
+    // full 模式仍保留页参数；incremental 模式下忽略 page_start/page_count，避免误用漏增量
     int issues_page_start = get_int_query(req, "issues_page_start", 1);
     int issues_pages_count = get_int_query(req, "issues_pages_count", 1);
 
@@ -673,26 +870,70 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     int releases_page_start = get_int_query(req, "releases_page_start", 1);
     int releases_pages_count = get_int_query(req, "releases_pages_count", 1);
 
+    //防止增量模式下其他参数产生污染
+    if (incremental)
+    {
+        issues_page_start = 1;
+        pulls_page_start = 1;
+        commits_page_start = 1;
+        releases_page_start = 1;
+
+        // 作为安全上限：防止无限分页（也可设更大或直接不限制）
+        issues_pages_count = 50;
+        pulls_pages_count = 50;
+        commits_pages_count = 50;
+        releases_pages_count = 50;
+    }
+
+    std::string issues_cursor, pulls_cursor, commits_cursor, releases_cursor;
+    if (incremental)
+    {
+        if (!db_get_sync_state(db, rid, issues_cursor, pulls_cursor, commits_cursor, releases_cursor))
+        {
+            res.status = 500;
+            res.set_content(R"({"error":"failed to read repo_sync_state"})", "application/json");
+            return;
+        }
+    }
+
     const long long run_id = db_insert_sync_run(db, rid, "error", "started"); // 先占位，后面会更新
  
     if (!sync_repo_snapshot(db, rid, full_name, token, run_id, res)) return;
 
-    int issues_upserted = 0;
+    int issues_upserted = 0, pulls_upserted = 0, commits_upserted = 0, releases_upserted = 0;
+    std::string new_issues_cursor = issues_cursor;
+    std::string new_pulls_cursor = pulls_cursor;
+    std::string new_commits_cursor = commits_cursor;
+    std::string new_releases_cursor = releases_cursor;
+
     if (!sync_repo_issues(db, rid, full_name, token, run_id, res, issues_upserted,
-                        issues_page_start, issues_pages_count)) return;
+                          issues_page_start, issues_pages_count,
+                          incremental ? issues_cursor : std::string(""),
+                          new_issues_cursor)) return;
 
-    int pulls_upserted = 0;
     if (!sync_repo_pulls(db, rid, full_name, token, run_id, res, pulls_upserted,
-                        pulls_page_start, pulls_pages_count)) return;
-   
-    int commits_upserted = 0;
-    if(!sync_repo_commits(db, rid, full_name, token, run_id, res, commits_upserted,
-                        commits_page_start, commits_pages_count)) return;
+                         pulls_page_start, pulls_pages_count,
+                         incremental ? pulls_cursor : std::string(""),
+                         new_pulls_cursor)) return;
 
-    int releases_upserted = 0;
-    if(!sync_repo_releases(db, rid, full_name, token, run_id, res, releases_upserted,
-                        releases_page_start, releases_pages_count)) return;
+    if (!sync_repo_commits(db, rid, full_name, token, run_id, res, commits_upserted,
+                           commits_page_start, commits_pages_count,
+                           incremental ? commits_cursor : std::string(""),
+                           new_commits_cursor)) return;
 
+    if (!sync_repo_releases(db, rid, full_name, token, run_id, res, releases_upserted,
+                            releases_page_start, releases_pages_count,
+                            incremental ? releases_cursor : std::string(""),
+                            new_releases_cursor)) return;
+
+    // 只有全部成功才推进 cursor
+    if (incremental)
+    {
+        if (new_issues_cursor != issues_cursor) db_update_sync_cursor(db, rid, "issues_updated_cursor", new_issues_cursor);
+        if (new_pulls_cursor != pulls_cursor) db_update_sync_cursor(db, rid, "pulls_updated_cursor", new_pulls_cursor);
+        if (new_commits_cursor != commits_cursor) db_update_sync_cursor(db, rid, "commits_since_cursor", new_commits_cursor);
+        if (new_releases_cursor != releases_cursor) db_update_sync_cursor(db, rid, "releases_cursor", new_releases_cursor);
+    }
 
     if (run_id > 0) db_finish_sync_run(db, run_id, "ok", "");
 
@@ -721,9 +962,14 @@ static void post_repo_sync_commit_files_handler(Db& db, const httplib::Request& 
 
     const std::string token = util::get_env("GITHUB_TOKEN", "");
 
+    // 新增：单次最多处理多少个 commit (默认30) (避免一次跑太多触发 503/限流)
+    const int limit_commits = get_int_query(req, "limit", 30);
+
     const long long run_id = db_insert_sync_run(db, rid, "error", "started");
     int total_files = 0;
-    if (!sync_commit_files(db, rid, full_name, token, run_id, res, total_files)) {
+
+    if (!sync_commit_files(db, rid, full_name, token, run_id, res, total_files, limit_commits)) 
+    {
         // sync_commit_files 会在失败时设置 res + db_finish_sync_run
         std::cerr<< "sync_commit_files failed for repo_id=" << rid << "\n";
         return;
@@ -732,6 +978,7 @@ static void post_repo_sync_commit_files_handler(Db& db, const httplib::Request& 
     if (run_id > 0) db_finish_sync_run(db, run_id, "ok", "");
 
     std::string out = std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) +
+                      ",\"limit_commits\":" + std::to_string(limit_commits) +
                       ",\"total_files_processed\":" + std::to_string(total_files) + "}";
     res.set_content(out, "application/json");
 }

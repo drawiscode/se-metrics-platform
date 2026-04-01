@@ -33,6 +33,7 @@ std::string json_escape(const std::string& s)
         }
     }
     return o;
+    
 }
 
 void exec_sql(sqlite3* db, const std::string& sql)

@@ -41,13 +41,17 @@ std::vector<HotFile> compute_hot_files(Db& db, httplib::Response& res, int repo_
         return out;
     }
 
+   // 修改：将 commit_files 与 commits 关联，按 commit_id 聚合，并从 commits 表读取 committed_at / repo_id
     const char* sql_all =
-        "SELECT filename, COUNT(DISTINCT sha) AS commits, SUM(additions) AS adds, SUM(deletions) AS dels "
-        "FROM commit_files WHERE repo_id=?1 GROUP BY filename ORDER BY (adds + dels) DESC LIMIT ?2;";
+        "SELECT cf.filename, COUNT(DISTINCT cf.commit_id) AS commits, SUM(cf.additions) AS adds, SUM(cf.deletions) AS dels "
+        "FROM commit_files cf JOIN commits c ON cf.commit_id = c.id "
+        "WHERE c.repo_id = ?1 GROUP BY cf.filename ORDER BY (adds + dels) DESC LIMIT ?2;";
 
     const char* sql_days =
-        "SELECT filename, COUNT(DISTINCT sha) AS commits, SUM(additions) AS adds, SUM(deletions) AS dels "
-        "FROM commit_files WHERE repo_id=?1 AND committed_at >= datetime('now', ?2) GROUP BY filename ORDER BY (adds + dels) DESC LIMIT ?3;";
+        "SELECT cf.filename, COUNT(DISTINCT cf.commit_id) AS commits, SUM(cf.additions) AS adds, SUM(cf.deletions) AS dels "
+        "FROM commit_files cf JOIN commits c ON cf.commit_id = c.id "
+        "WHERE c.repo_id = ?1 AND c.committed_at >= datetime('now', ?2) "
+        "GROUP BY cf.filename ORDER BY (adds + dels) DESC LIMIT ?3;";
 
     sqlite3_stmt* stmt = nullptr;
     const char* used = (days_window > 0) ? sql_days : sql_all;
@@ -83,31 +87,40 @@ std::vector<HotFile> compute_hot_files(Db& db, httplib::Response& res, int repo_
 }
 
 // 按目录聚合 top N（dir_depth 指定层级）
-std::vector<HotDir> compute_hot_dirs(Db& db, int repo_id, int days_window, int top_n, int dir_depth)
+std::vector<HotDir> compute_hot_dirs(Db& db, httplib::Response& res, int repo_id, int days_window, int top_n, int dir_depth)
 {
     std::vector<HotDir> out;
     sqlite3* sdb = db.handle();
-    //if (!ensure_commit_files_table(sdb)) return out;
+    if (!sdb) 
+    {
+        res.status = 500;
+        res.set_content(R"({"error":"db handle is null"})", "application/json");
+        return out;
+    }
 
     const char* sql_days =
-        "SELECT filename, COUNT(DISTINCT sha) AS commits, SUM(additions) AS adds, SUM(deletions) AS dels "
-        "FROM commit_files WHERE repo_id=?1 AND committed_at >= datetime('now', ?2) GROUP BY filename;";
+        "SELECT cf.filename, COUNT(DISTINCT cf.commit_id) AS commits, SUM(cf.additions) AS adds, SUM(cf.deletions) AS dels "
+        "FROM commit_files cf JOIN commits c ON cf.commit_id = c.id "
+        "WHERE c.repo_id=?1 AND c.committed_at >= datetime('now', ?2) GROUP BY cf.filename;";
     const char* sql_all =
-        "SELECT filename, COUNT(DISTINCT sha) AS commits, SUM(additions) AS adds, SUM(deletions) AS dels "
-        "FROM commit_files WHERE repo_id=?1 GROUP BY filename;";
+        "SELECT cf.filename, COUNT(DISTINCT cf.commit_id) AS commits, SUM(cf.additions) AS adds, SUM(cf.deletions) AS dels "
+        "FROM commit_files cf JOIN commits c ON cf.commit_id = c.id "
+        "WHERE c.repo_id=?1 GROUP BY cf.filename;";
 
     sqlite3_stmt* stmt = nullptr;
     const char* used = (days_window > 0) ? sql_days : sql_all;
     if (sqlite3_prepare_v2(sdb, used, -1, &stmt, nullptr) != SQLITE_OK) return out;
 
     sqlite3_bind_int(stmt, 1, repo_id);
-    if (days_window > 0) {
+    if (days_window > 0) 
+    {
         std::string delta = std::string("-") + std::to_string(days_window) + " days";
         sqlite3_bind_text(stmt, 2, delta.c_str(), -1, SQLITE_TRANSIENT);
     }
 
     std::map<std::string, HotDir> mapdirs;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (sqlite3_step(stmt) == SQLITE_ROW) 
+    {
         const unsigned char* fn = sqlite3_column_text(stmt, 0);
         std::string filename = fn ? reinterpret_cast<const char*>(fn) : "";
         int commits = sqlite3_column_int(stmt, 1);

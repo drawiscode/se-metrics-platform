@@ -110,6 +110,10 @@ bool parse_repo_releases_from_github(const GitHubResponse& gh,
                                     std::string& error_out,
                                     int& http_status_out);
 
+bool parse_pull_from_github_json(const GitHubResponse& gh,
+                                       RepoPullRequestData& out_pr,
+                                       std::string& err,
+                                       int& http_status);
 
 // 列出 issues（返回 JSON array 字符串）
 GitHubResponse github_list_issues(const std::string& full_name,
@@ -146,3 +150,24 @@ GitHubResponse github_list_releases(const std::string& full_name,
                                    int page);
 
 GitHubResponse github_get_repo(const std::string& full_name, const std::string& token);
+
+
+// Search issues/prs（用于增量拉 PR：is:pr + updated:>=cursor）
+GitHubResponse github_search_issues_prs(const std::string& token,
+                                       const std::string& query,
+                                       int per_page,
+                                       int page,
+                                       const std::string& sort /*updated*/,
+                                       const std::string& order /*asc|desc*/);
+
+// 获取单个 PR 详情，用于补 merged_at 等字段
+GitHubResponse github_get_pull(const std::string& full_name,
+                              const std::string& token,
+                              int number);
+
+                              
+bool github_get_commit_with_retry(const std::string& full_name,
+                                        const std::string& token,
+                                        const std::string& sha,
+                                        GitHubResponse& out,
+                                        int max_retries = 5);

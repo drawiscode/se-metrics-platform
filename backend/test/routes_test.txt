@@ -1,4 +1,5 @@
 ﻿以下指令均在终端powershell里面运行
+//  microsoft/VibeVoice
 
 $BaseUrl = "http://127.0.0.1:8080"
 

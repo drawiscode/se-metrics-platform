@@ -87,7 +87,6 @@ static std::string simple_encode_url(const std::string& src)
     return out;
 }
 
-
 void Judge_GitHub_Token(const std::string &token)
 {
     // 调试输出，方便确认是否拿到 token
@@ -160,6 +159,29 @@ GitHubResponse github_get_repo(const std::string& full_name, const std::string& 
     return github_get_path(path, token);
 }
 
+GitHubResponse github_search_issues_prs(const std::string& token,
+                                       const std::string& query,
+                                       int per_page,
+                                       int page,
+                                       const std::string& sort,
+                                       const std::string& order)
+{
+    GitHubResponse out;
+    per_page = std::max(1, std::min(100, per_page));
+    page = std::max(1, page);
+
+    const std::string s = sort.empty() ? "updated" : sort;
+    const std::string o = (order == "asc" || order == "desc") ? order : "asc";
+
+    // 关键：Search 的 q 必须 URL 编码（包含 :, >=, 空格 等）
+    std::string path = "/search/issues?q=" + simple_encode_url(query) +
+                       "&sort=" + simple_encode_url(s) +
+                       "&order=" + simple_encode_url(o) +
+                       "&per_page=" + std::to_string(per_page) +
+                       "&page=" + std::to_string(page);
+
+    return github_get_path(path, token);
+}
 
 bool fetch_repo_snapshot_from_github(const GitHubResponse& gh,
                                         RepoSnapshotData& out,
@@ -623,4 +645,107 @@ GitHubResponse github_list_releases(const std::string& full_name,
                              std::to_string(per_page) + "&page=" + std::to_string(page);
 
     return github_get_path(path, token);
+}
+
+
+GitHubResponse github_get_pull(const std::string& full_name,
+                              const std::string& token,
+                              int number)
+{
+    GitHubResponse out;
+    if (!validate_full_name(full_name)) {
+        out.error = "invalid full_name";
+        return out;
+    }
+    if (number <= 0) {
+        out.error = "invalid pull number";
+        return out;
+    }
+
+    std::string path = "/repos/" + full_name + "/pulls/" + std::to_string(number);
+    return github_get_path(path, token);
+}
+
+
+
+bool parse_pull_from_github_json(const GitHubResponse& gh,
+                                       RepoPullRequestData& out_pr,
+                                       std::string& err,
+                                       int& http_status)
+{
+    http_status = gh.status;
+    if (!gh.error.empty())
+    {
+        err = gh.error;
+        return false;
+    }
+    if (gh.status < 200 || gh.status >= 300)
+    {
+        err = "github http " + std::to_string(gh.status);
+        return false;
+    }
+
+    try
+    {
+        auto j = nlohmann::json::parse(gh.body);
+
+        out_pr.number = j.value("number", 0);
+        out_pr.state = j.value("state", "");
+        out_pr.title = j.value("title", "");
+
+        out_pr.created_at = j_get_string_or_empty(j, "created_at");
+        out_pr.updated_at = j_get_string_or_empty(j, "updated_at");
+        out_pr.closed_at  = j_get_string_or_empty(j, "closed_at");   // 可能为 null
+        out_pr.merged_at  = j_get_string_or_empty(j, "merged_at");   // 可能为 null
+
+        if (j.contains("user") && j["user"].is_object())
+        {
+            out_pr.author_login = j_get_string_or_empty(j["user"], "login"); // user.login 也可能为 null
+        }
+        else
+        {
+            out_pr.author_login.clear();
+        }
+        
+        out_pr.raw_json = gh.body;
+
+        if (out_pr.number <= 0 || out_pr.updated_at.empty())
+        {
+            err = "invalid pull payload (missing number/updated_at)";
+            return false;
+        }
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        err = std::string("parse pull json failed: ") + e.what();
+        return false;
+    }
+}
+
+
+
+bool github_get_commit_with_retry(const std::string& full_name,
+                                        const std::string& token,
+                                        const std::string& sha,
+                                        GitHubResponse& out,
+                                        int max_retries)
+{
+    for (int attempt = 0; attempt <= max_retries; ++attempt)
+    {
+        out = github_get_commit_with_file(full_name, token, sha);
+        // 成功
+        if (out.error.empty() && out.status >= 200 && out.status < 300) return true;
+
+        // 不重试的情况（典型：404/401/403/422）
+        const bool retryable_status =
+            (out.status == 429) || (out.status == 500) || (out.status == 502) || (out.status == 503) || (out.status == 504);
+
+        if (!retryable_status || attempt == max_retries) return false;
+
+        // 指数退避：1s,2s,4s,8s,16s...
+        const int backoff_ms = 1000 * (1 << attempt);
+        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+    }
+    return false;
 }

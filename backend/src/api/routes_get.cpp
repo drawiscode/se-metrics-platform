@@ -19,6 +19,17 @@ static void Print_HotFiles(const int rid, const std::vector<HotFile>& hot_files)
     }
 }
 
+static void Print_HotDirs(const int rid, const std::vector<HotDir>& hot_dirs)
+{
+    std::cerr << "Hot Dirs for repo_id=" << rid << ":\n";
+    for (const auto& f : hot_dirs)
+    {
+        std::cerr << "  " << f.dir << " (commits=" << f.commits
+                  << ", additions=" << f.additions
+                  << ", deletions=" << f.deletions
+                  << ", churn=" << f.churn() << ")\n";
+    }
+}
 
 static int get_int_param(const httplib::Request& req, const std::string& key, int defv) {
     if (!req.has_param(key)) return defv;
@@ -93,12 +104,15 @@ static void get_repo_handler(Db& db, const httplib::Request& req, httplib::Respo
     int id = sqlite3_column_int(stmt, 0);
     const unsigned char* fn = sqlite3_column_text(stmt, 1);
     int enabled = sqlite3_column_int(stmt, 2);
-    sqlite3_finalize(stmt);
+    
 
     std::string out = std::string("{\"id\":") + std::to_string(id)
         + ",\"full_name\":\"" + util::json_escape(fn ? (const char*)fn : "") + "\""
         + ",\"enabled\":" + std::to_string(enabled)
         + "}";
+        
+    //应该放在这里结束，而不是前面
+    sqlite3_finalize(stmt);
     res.set_content(out, "application/json");
 }
 
@@ -450,6 +464,87 @@ static void get_repo_hotfiles_handler(Db& db, const httplib::Request& req, httpl
     res.set_content(out, "application/json");
 }
 
+
+static void get_repo_hotdirs_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+    const int days = std::max(0, get_int_param(req, "days", 0));            // days_window，0 表示不限
+    const int top_n = std::max(1, std::min(200, get_int_param(req, "top", 20))); // top_n，1..200
+    const int dir_depth = std::max(1, std::min(10, get_int_param(req, "dir_depth", 2))); // 目录深度，1..10，默认2
+
+    std::vector<HotDir> dirs = compute_hot_dirs(db, res, rid, days, top_n, dir_depth);
+    if(res.status == 500)
+    {
+        return;
+    }
+
+    Print_HotDirs(rid, dirs);
+
+    std::string out = R"({"items":[)";
+    bool first = true;
+    for (const auto& d : dirs)
+    {
+        if (!first) out += ",";
+        first = false;
+        out += "{\"dirname\":\"" + util::json_escape(d.dir.empty() ? "" : d.dir.c_str()) + "\""
+            + ",\"commits\":" + std::to_string(d.commits)
+            + ",\"additions\":" + std::to_string(d.additions)
+            + ",\"deletions\":" + std::to_string(d.deletions)
+            + "}";
+    }
+    out += "]}";
+    res.set_content(out, "application/json");
+}
+
+
+static void get_repo_activity_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+    const int days = std::max(1, get_int_param(req, "days", 30));
+
+    sqlite3* sdb = db.handle();
+
+    const char* sql =
+        "SELECT date(committed_at) AS d, COUNT(*) "
+        "FROM commits "
+        "WHERE repo_id=? AND committed_at >= datetime('now', ?) "
+        "GROUP BY date(committed_at) "
+        "ORDER BY d ASC;";
+
+    std::string window = "-" + std::to_string(days) + " days";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        res.status = 500;
+        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        return;
+    }
+
+    sqlite3_bind_int(stmt, 1, rid);
+    sqlite3_bind_text(stmt, 2, window.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::string out = R"({"items":[)";
+    bool first = true;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const unsigned char* d = sqlite3_column_text(stmt, 0);
+        int cnt = sqlite3_column_int(stmt, 1);
+
+        if (!first) out += ",";
+        first = false;
+
+        out += std::string("{\"date\":\"") + (d ? reinterpret_cast<const char*>(d) : "") +
+               "\",\"commits\":" + std::to_string(cnt) + "}";
+    }
+
+    sqlite3_finalize(stmt);
+    out += "]}";
+
+    res.set_content(out, "application/json");
+}
+
 // 对外提供一个注册函数，只注册 GET 路由
 void register_get_routes(httplib::Server& app, Db& db)
 {
@@ -513,5 +608,17 @@ void register_get_routes(httplib::Server& app, Db& db)
             [&db](const httplib::Request& req, httplib::Response& res)
             {
                 get_repo_hotfiles_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/hotdirs)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_hotdirs_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/activity)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_activity_handler(db, req, res);
             });
 }

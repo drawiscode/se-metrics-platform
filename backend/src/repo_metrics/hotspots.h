@@ -4,10 +4,10 @@
 #include <httplib.h>
 struct HotFile {
     std::string filename;
-    int commits = 0;
+    int commits = 0; // 修改过该文件的提交数，反映修改频率
     int additions = 0;
     int deletions = 0;
-    int churn() const { return additions + deletions; }
+    int churn() const { return additions + deletions; } // 代码行修改量（churn）作为热度指标，越大越热
 };
 
 struct HotDir {
@@ -32,4 +32,4 @@ struct HotModule {
 
 static std::string dirname_depth(const std::string& path, int depth);
 std::vector<HotFile> compute_hot_files(Db& db, httplib::Response& res, int repo_id, int days_window, int top_n);
-std::vector<HotDir> compute_hot_dirs(Db& db, int repo_id, int days_window, int top_n, int dir_depth);
+std::vector<HotDir> compute_hot_dirs(Db& db, httplib::Response& res, int repo_id, int days_window, int top_n, int dir_depth);
