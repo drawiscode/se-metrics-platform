@@ -32,7 +32,8 @@ struct BuildIndexResult {
 // 为指定仓库构建/重建知识索引（会先清除旧数据）
 BuildIndexResult build_knowledge_index(Db& db, int repo_id);
 
-// 关键词检索知识库，返回按相关度排序的 Top-K 结果
+// 关键词检索知识库，返回按相关度排序的 Top-K 结果。
+// repo_id <= 0 表示检索所有仓库。
 std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
                                              const std::string& query, int top_k = 10);
 

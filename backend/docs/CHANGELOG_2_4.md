@@ -85,7 +85,11 @@ POST /api/repos/1/knowledge/build
 GET /api/repos/1/knowledge/search?q=bug+fix&top=5
 
 # 4. AI 问答（需要 LLM 配置）
-POST /api/ai/ask  {"repo_id":1, "question":"最近有哪些严重的 bug？"}
+#用下面的命令可以查看完整的输出
+$resp = Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/ai/ask" `
+  -ContentType "application/json; charset=utf-8" `
+  -Body '{"repo_id":3, "question":"最近有哪些严重的bug？"}'
+$resp.answer
 
 # 5. 查看历史对话
 GET /api/ai/conversations?repo_id=1

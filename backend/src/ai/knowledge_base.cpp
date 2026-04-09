@@ -362,18 +362,22 @@ std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
     auto keywords = extract_keywords(query);
     if (keywords.empty()) return results;
 
-    // 构造 SQL: WHERE repo_id=?1 AND (LOWER(title||' '||content) LIKE ?2 OR ... OR LIKE ?N)
+    // 构造 SQL: 指定 repo 时按仓库过滤；否则搜索全部仓库。
     std::string or_clauses;
     for (size_t i = 0; i < keywords.size(); i++) {
         if (i > 0) or_clauses += " OR ";
-        or_clauses += "LOWER(title||' '||content) LIKE ?" + std::to_string(i + 2);
+        or_clauses += "LOWER(title||' '||content) LIKE ?" + std::to_string(repo_id > 0 ? i + 2 : i + 1);
     }
 
     std::string sql =
         "SELECT id, repo_id, source_type, source_id, title, content, author, event_time "
-        "FROM knowledge_chunks "
-        "WHERE repo_id=?1 AND (" + or_clauses + ") "
-        "LIMIT 200;";
+        "FROM knowledge_chunks ";
+    if (repo_id > 0) {
+        sql += "WHERE repo_id=?1 AND (" + or_clauses + ") ";
+    } else {
+        sql += "WHERE (" + or_clauses + ") ";
+    }
+    sql += "LIMIT 200;";
 
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
@@ -382,10 +386,13 @@ std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
         return results;
     }
 
-    sqlite3_bind_int(stmt, 1, repo_id);
+    int bind_index = 1;
+    if (repo_id > 0) {
+        sqlite3_bind_int(stmt, bind_index++, repo_id);
+    }
     for (size_t i = 0; i < keywords.size(); i++) {
         std::string pattern = "%" + keywords[i] + "%";
-        sqlite3_bind_text(stmt, static_cast<int>(i + 2), pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, bind_index++, pattern.c_str(), -1, SQLITE_TRANSIENT);
     }
 
     // 读取候选结果，在 C++ 侧评分

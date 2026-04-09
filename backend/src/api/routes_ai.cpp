@@ -8,6 +8,8 @@
 #include <nlohmann/json.hpp>
 #include <sqlite3.h>
 
+static constexpr const char* kJsonUtf8 = "application/json; charset=utf-8";
+
 static int get_int_param_ai(const httplib::Request& req, const std::string& key, int defv) {
     if (!req.has_param(key)) return defv;
     try { return std::stoi(req.get_param_value(key)); } catch (...) { return defv; }
@@ -27,7 +29,7 @@ static void post_knowledge_build_handler(Db& db, const httplib::Request& req, ht
     const char* sql = "SELECT id FROM repos WHERE id=?1;";
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         res.status = 500;
-        res.set_content(R"({"error":"数据库错误"})", "application/json");
+        res.set_content(R"({"error":"数据库错误"})", kJsonUtf8);
         return;
     }
     sqlite3_bind_int(stmt, 1, rid);
@@ -36,7 +38,7 @@ static void post_knowledge_build_handler(Db& db, const httplib::Request& req, ht
 
     if (!exists) {
         res.status = 404;
-        res.set_content(R"({"error":"仓库不存在"})", "application/json");
+        res.set_content(R"({"error":"仓库不存在"})", kJsonUtf8);
         return;
     }
 
@@ -44,7 +46,7 @@ static void post_knowledge_build_handler(Db& db, const httplib::Request& req, ht
     res.set_content(
         "{\"ok\":true,\"repo_id\":" + std::to_string(rid)
         + ",\"result\":" + build_result_to_json(result) + "}",
-        "application/json");
+        kJsonUtf8);
 }
 
 // ============================================================
@@ -59,12 +61,12 @@ static void get_knowledge_search_handler(Db& db, const httplib::Request& req, ht
 
     if (query.empty()) {
         res.status = 400;
-        res.set_content(R"({"error":"缺少查询参数 'q'"})", "application/json");
+        res.set_content(R"({"error":"缺少查询参数 'q'"})", kJsonUtf8);
         return;
     }
 
     auto chunks = search_knowledge(db, rid, query, top);
-    res.set_content("{\"items\":" + knowledge_chunks_to_json(chunks) + "}", "application/json");
+    res.set_content("{\"items\":" + knowledge_chunks_to_json(chunks) + "}", kJsonUtf8);
 }
 
 // ============================================================
@@ -95,14 +97,14 @@ static void post_ai_ask_handler(Db& db, const httplib::Request& req, httplib::Re
     if (question.empty() && req.has_param("question"))
         question = req.get_param_value("question");
 
-    if (repo_id <= 0 || question.empty()) {
+    if (question.empty()) {
         res.status = 400;
-        res.set_content(R"({"error":"缺少 repo_id 或 question"})", "application/json");
+        res.set_content(R"({"error":"缺少 question"})", kJsonUtf8);
         return;
     }
 
     auto answer = ask_question(db, repo_id, question);
-    res.set_content(ai_answer_to_json(answer), "application/json");
+    res.set_content(ai_answer_to_json(answer), kJsonUtf8);
 }
 
 // ============================================================
@@ -129,7 +131,7 @@ static void get_ai_conversations_handler(Db& db, const httplib::Request& req, ht
 
     if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         res.status = 500;
-        res.set_content(R"({"error":"数据库错误"})", "application/json");
+        res.set_content(R"({"error":"数据库错误"})", kJsonUtf8);
         return;
     }
 
@@ -164,7 +166,7 @@ static void get_ai_conversations_handler(Db& db, const httplib::Request& req, ht
     out += "]}";
     sqlite3_finalize(stmt);
 
-    res.set_content(out, "application/json");
+    res.set_content(out, kJsonUtf8);
 }
 
 // ============================================================
@@ -178,7 +180,7 @@ void register_ai_routes(httplib::Server& app, Db& db)
                  try { post_knowledge_build_handler(db, req, res); }
                  catch (const std::exception& e) {
                      res.status = 500;
-                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json");
+                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJsonUtf8);
                  }
              });
 
@@ -188,7 +190,7 @@ void register_ai_routes(httplib::Server& app, Db& db)
                 try { get_knowledge_search_handler(db, req, res); }
                 catch (const std::exception& e) {
                     res.status = 500;
-                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json");
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJsonUtf8);
                 }
             });
 
@@ -198,7 +200,7 @@ void register_ai_routes(httplib::Server& app, Db& db)
                  try { post_ai_ask_handler(db, req, res); }
                  catch (const std::exception& e) {
                      res.status = 500;
-                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json");
+                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJsonUtf8);
                  }
              });
 
@@ -208,7 +210,7 @@ void register_ai_routes(httplib::Server& app, Db& db)
                 try { get_ai_conversations_handler(db, req, res); }
                 catch (const std::exception& e) {
                     res.status = 500;
-                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json");
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJsonUtf8);
                 }
             });
 }

@@ -9,6 +9,7 @@ class Db;
 
 // 一条引用证据
 struct AiEvidence {
+    int repo_id = 0;
     std::string source_type;   // "issue" / "pull_request" / "commit" / "release"
     std::string source_id;
     std::string title;
@@ -24,7 +25,8 @@ struct AiAnswer {
     std::string error;                   // 失败时的错误信息
 };
 
-// 完整 RAG 问答流程: 检索 → 组装上下文 → 调用 LLM → 格式化输出
+// 完整 RAG 问答流程: 检索 → 组装上下文 → 调用 LLM → 格式化输出。
+// repo_id <= 0 表示不限定仓库，走全局知识库问答。
 AiAnswer ask_question(Db& db, int repo_id, const std::string& question);
 
 // 序列化为 JSON
