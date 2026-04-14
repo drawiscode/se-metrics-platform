@@ -68,3 +68,58 @@
 - `backend/src/ai/knowledge_base.h`：+2 / -1
 - `backend/src/api/routes_ai.cpp`：+16 / -14
 - `backend/docs/CHANGELOG_2_4.md`：+5 / -1
+
+## 十、今日补充（2026-04-14）
+
+### 1) 2.4(3) 风险检测 MVP 已落地
+
+- 新增风险检测核心模块：`backend/src/risk/detector.h`、`backend/src/risk/detector.cpp`。
+- 新增风险路由：`backend/src/api/routes_risk.cpp`，并在主路由中注册。
+- 新增风险数据库表：
+- `risk_alert_runs`（扫描运行记录）
+- `risk_alert_events`（告警事件明细）
+
+### 2) 已实现的异常检测规则
+
+- `code_churn_spike`：检测单日代码 churn 异常飙升。
+- `issue_backlog_spike`：检测 open issues 积压突增。
+- `pr_merge_latency_spike`：检测 PR 合并耗时异常上升。
+
+### 3) 新增风险相关 API
+
+- `POST /api/repos/{id}/risk/scan?days=30`：触发风险扫描。
+- `GET /api/repos/{id}/risk/alerts`：查询告警（支持 status/severity/limit/offset）。
+- `GET /api/repos/{id}/risk/alerts/summary?days=7`：查询告警摘要。
+
+### 4) 与 AI/RAG 的联动
+
+- 风险告警写入 `knowledge_chunks`（`source_type = risk_alert`），可被 AI 问答检索引用。
+
+### 5) 同步稳定性与可诊断性增强
+
+- 改进 `github_client.cpp`：
+- GitHub 请求失败时返回更具体错误（含 `httplib` 错误码文本）。
+- 增加连接/读写超时，降低卡死与假失败概率。
+- 支持 `HTTPS_PROXY` / `HTTP_PROXY` 环境变量代理配置。
+
+### 6) 编译与编码问题修复
+
+- 修复 `risk/detector.cpp` 中字符串常量导致的 `C2001/C2146` 编译错误。
+- 为 `detector.h`、`detector.cpp` 补充必要注释，便于后续规则扩展与维护。
+
+## 十一、代码增删统计（今日全部改动）
+
+- 统计范围：今日当前工作区全部改动（含新增文件）
+- **总计新增：940 行**
+- **总计删除：2 行**
+
+分文件明细：
+
+- `backend/CMakeLists.txt`：+2 / -0
+- `backend/docs/update_2_4.md`：+62 / -1
+- `backend/src/api/routes.cpp`：+2 / -0
+- `backend/src/db/db.cpp`：+38 / -0
+- `backend/src/repo_metrics/github_client.cpp`：+56 / -1
+- `backend/src/api/routes_risk.cpp`：+92 / -0
+- `backend/src/risk/detector.cpp`：+636 / -0
+- `backend/src/risk/detector.h`：+52 / -0

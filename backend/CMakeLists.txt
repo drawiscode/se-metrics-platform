@@ -25,12 +25,14 @@ add_executable(devinsight_backend
     src/api/routes_post.cpp
     src/api/routes_put.cpp
     src/api/routes_ai.cpp
+    src/api/routes_risk.cpp
     src/common/util.cpp
     src/db/db.cpp
     src/repo_metrics/github_client.cpp
     src/repo_metrics/metrics.cpp
     src/repo_metrics/health.cpp
     src/repo_metrics/hotspots.cpp
+    src/risk/detector.cpp
     src/ai/knowledge_base.cpp
     src/ai/ai_assistant.cpp
 )

@@ -222,6 +222,44 @@ void Db::init_schema()
     );
     CREATE INDEX IF NOT EXISTS idx_ai_conv_repo ON ai_conversations(repo_id);
 
+    -- 2.4(3) 风险预警扫描运行记录
+    CREATE TABLE IF NOT EXISTS risk_alert_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id INTEGER NOT NULL,
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running', -- running | ok | error
+        summary_json TEXT,
+        error TEXT,
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_risk_runs_repo_started ON risk_alert_runs(repo_id, started_at DESC);
+
+    -- 2.4(3) 风险预警事件
+    CREATE TABLE IF NOT EXISTS risk_alert_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER,
+        repo_id INTEGER NOT NULL,
+        alert_type TEXT NOT NULL,      -- code_churn_spike / issue_backlog_spike / pr_merge_latency_spike
+        metric_name TEXT NOT NULL,
+        window_start TEXT,
+        window_end TEXT,
+        current_value REAL NOT NULL,
+        baseline_value REAL NOT NULL,
+        threshold_value REAL NOT NULL,
+        severity TEXT NOT NULL,        -- warning | critical
+        scope_type TEXT NOT NULL DEFAULT 'repo',
+        scope_id TEXT NOT NULL DEFAULT '',
+        suggested_action TEXT,
+        status TEXT NOT NULL DEFAULT 'open', -- open | acknowledged | resolved
+        evidence_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (run_id) REFERENCES risk_alert_runs(id) ON DELETE SET NULL,
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_risk_events_repo_created ON risk_alert_events(repo_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_risk_events_repo_status ON risk_alert_events(repo_id, status, severity);
+
     )SQL";
 
     exec(schema);

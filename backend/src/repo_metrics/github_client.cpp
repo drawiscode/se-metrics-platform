@@ -1,9 +1,56 @@
 ﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/github_client.cpp
 #include "github_client.h"
 
+#include "common/util.h"
+
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+
+struct ProxyConfig {
+    std::string host;
+    int port = 0;
+};
+
+static bool parse_proxy_url(const std::string& raw, ProxyConfig& out)
+{
+    if (raw.empty()) return false;
+
+    std::string s = raw;
+    if (s.rfind("http://", 0) == 0) s = s.substr(7);
+    if (s.rfind("https://", 0) == 0) s = s.substr(8);
+
+    // 去掉可能携带的路径
+    auto slash = s.find('/');
+    if (slash != std::string::npos) s = s.substr(0, slash);
+
+    auto colon = s.rfind(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 >= s.size()) return false;
+
+    out.host = s.substr(0, colon);
+    try {
+        out.port = std::stoi(s.substr(colon + 1));
+    } catch (...) {
+        return false;
+    }
+
+    return !out.host.empty() && out.port > 0;
+}
+
+static bool load_proxy_from_env(ProxyConfig& out)
+{
+    const std::string candidates[] = {
+        util::get_env("HTTPS_PROXY", ""),
+        util::get_env("https_proxy", ""),
+        util::get_env("HTTP_PROXY", ""),
+        util::get_env("http_proxy", "")
+    };
+
+    for (const auto& c : candidates) {
+        if (parse_proxy_url(c, out)) return true;
+    }
+    return false;
+}
 
 static std::string j_get_string_or_empty(const nlohmann::json& obj, const char* key)
 {
@@ -115,6 +162,14 @@ static GitHubResponse github_get_path(const std::string& path, const std::string
 #if defined(CPPHTTPLIB_OPENSSL_SUPPORT) || defined(HTTPLIB_OPENSSL_SUPPORT)
     httplib::SSLClient cli("api.github.com", 443);
     cli.set_follow_location(true);
+    cli.set_connection_timeout(10, 0);
+    cli.set_read_timeout(60, 0);
+    cli.set_write_timeout(60, 0);
+
+    ProxyConfig proxy;
+    if (load_proxy_from_env(proxy)) {
+        cli.set_proxy(proxy.host, proxy.port);
+    }
 
     // 开发期：避免证书链问题导致握手失败（生产环境不要关）
    // cli.enable_server_certificate_verification(false);
@@ -126,7 +181,7 @@ static GitHubResponse github_get_path(const std::string& path, const std::string
 
     auto res = cli.Get(path.c_str(), headers);
     if (!res) {
-        out.error = "http request failed";
+        out.error = "http request failed: " + httplib::to_string(res.error());
         return out;
     }
 

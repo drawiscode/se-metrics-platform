@@ -14,6 +14,7 @@ void register_post_routes(httplib::Server& app, Db& db);
 void register_put_routes(httplib::Server& app, Db& db);
 void register_delete_routes(httplib::Server& app, Db& db);
 void register_ai_routes(httplib::Server& app, Db& db);   // 2.4 AI 智能分析路由
+void register_risk_routes(httplib::Server& app, Db& db); // 2.4(3) 异常检测与风险预警路由
 
 
 void register_routes(httplib::Server& app, Db& db)
@@ -24,6 +25,7 @@ void register_routes(httplib::Server& app, Db& db)
     register_put_routes(app, db);
     register_delete_routes(app, db);
     register_ai_routes(app, db);     // 2.4 知识库 + AI 问答
+    register_risk_routes(app, db);   // 2.4(3) 风险扫描与告警查询
 }
 
 
