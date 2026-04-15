@@ -169,6 +169,58 @@ static void get_ai_conversations_handler(Db& db, const httplib::Request& req, ht
     res.set_content(out, kJsonUtf8);
 }
 
+
+// ============================================================
+// GET /api/ai/conversations/{id}
+// 查询单条 AI 对话详情
+// ============================================================
+static void get_ai_conversation_detail_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    int id = std::stoi(req.matches[1]);
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+
+    const char* sql =
+        "SELECT id, repo_id, question, answer, evidence_json, model, created_at "
+        "FROM ai_conversations WHERE id=?1;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        res.status = 500;
+        res.set_content(R"({"error":"数据库错误"})", kJsonUtf8);
+        return;
+    }
+    sqlite3_bind_int(stmt, 1, id);
+
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        res.status = 404;
+        res.set_content(R"({"error":"对话不存在"})", kJsonUtf8);
+        return;
+    }
+
+    int rid = sqlite3_column_int(stmt, 1);
+    auto q  = sqlite3_column_text(stmt, 2);
+    auto a  = sqlite3_column_text(stmt, 3);
+    auto ej = sqlite3_column_text(stmt, 4);
+    auto m  = sqlite3_column_text(stmt, 5);
+    auto t  = sqlite3_column_text(stmt, 6);
+
+    std::string out = "{";
+    out += "\"id\":" + std::to_string(id);
+    out += ",\"repo_id\":" + std::to_string(rid);
+    out += ",\"question\":\"" + util::json_escape(q ? (const char*)q : "") + "\"";
+    out += ",\"answer\":\"" + util::json_escape(a ? (const char*)a : "") + "\"";
+    out += ",\"evidence_json\":" + std::string(ej ? (const char*)ej : "[]");
+    out += ",\"model\":\"" + util::json_escape(m ? (const char*)m : "") + "\"";
+    out += ",\"created_at\":\"" + util::json_escape(t ? (const char*)t : "") + "\"";
+    out += "}";
+    sqlite3_finalize(stmt);
+
+    res.set_content(out, kJsonUtf8);
+}
+
+
 // ============================================================
 // 注册所有 AI 相关路由
 // ============================================================
@@ -188,6 +240,16 @@ void register_ai_routes(httplib::Server& app, Db& db)
     app.Get(R"(/api/repos/(\d+)/knowledge/search)",
             [&db](const httplib::Request& req, httplib::Response& res) {
                 try { get_knowledge_search_handler(db, req, res); }
+                catch (const std::exception& e) {
+                    res.status = 500;
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJsonUtf8);
+                }
+            });
+
+    // 对话详情(新增,添加了证据应用的返回)
+    app.Get(R"(/api/ai/conversations/(\d+))",
+            [&db](const httplib::Request& req, httplib::Response& res) {
+                try { get_ai_conversation_detail_handler(db, req, res); }
                 catch (const std::exception& e) {
                     res.status = 500;
                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJsonUtf8);
