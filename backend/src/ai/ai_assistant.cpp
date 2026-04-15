@@ -517,6 +517,8 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
     if (!global_scope) {
         full_name = get_repo_full_name(db, repo_id);
         if (full_name.empty()) {
+
+            std::cerr << "仓库 ID " << repo_id << " 不存在" << std::endl; // 调试用
             answer.error = "仓库不存在";
             return answer;
         }
