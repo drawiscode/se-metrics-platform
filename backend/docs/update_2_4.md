@@ -140,3 +140,28 @@
 分文件明细：
 
 - `backend/src/ai/ai_assistant.cpp`：+28 / -4
+
+## 十三、今日补充（2026-04-16, rty）
+
+### 1) 同步动作联动 RAG 知识库构建
+
+- 在 backend/src/api/routes_post.cpp 的仓库同步主流程中接入知识库构建。
+- 当前端点击同步接口 POST /api/repos/{id}/sync（增量或 full）后，后端会在同步成功后自动执行 build_knowledge_index。
+- 同步响应新增知识库统计字段：kb_issues_indexed、kb_pulls_indexed、kb_commits_indexed、kb_releases_indexed、kb_total_indexed。
+
+### 2) 前端同步成功提示增强（可视化知识块构建结果）
+
+- 在 frontend/src/views/ReposView.vue 新增同步结果摘要提示 syncSummary。
+- 同步成功后，页面会直接展示“本次构建知识块总数 + 按 Issue/PR/Commit/Release 的明细统计”。
+- 仍保留原始 JSON 回包展示，便于调试。
+
+### 3) 今日代码增删统计（上述两项功能）
+
+- 统计口径：git diff --numstat（当前未提交改动）
+- 总计新增：33 行
+- 总计删除：2 行
+
+分文件明细：
+
+- backend/src/api/routes_post.cpp：+9 / -0
+- frontend/src/views/ReposView.vue：+24 / -2

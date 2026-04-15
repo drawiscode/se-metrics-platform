@@ -1,5 +1,6 @@
 ﻿#include "routes.h"
 #include "common/util.h"
+#include "ai/knowledge_base.h"
 #include <sqlite3.h>
 #include "repo_metrics/github_client.h"
 #include <nlohmann/json.hpp>
@@ -935,6 +936,9 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         if (new_releases_cursor != releases_cursor) db_update_sync_cursor(db, rid, "releases_cursor", new_releases_cursor);
     }
 
+    // 同步成功后立即重建知识库索引，保证前端点击同步后可直接进行 RAG 查询。
+    const BuildIndexResult kb_build = build_knowledge_index(db, rid);
+
     if (run_id > 0) db_finish_sync_run(db, run_id, "ok", "");
 
      res.set_content(
@@ -943,6 +947,11 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         ",\"pulls_upserted\":" + std::to_string(pulls_upserted) +
         ",\"commits_upserted\":" + std::to_string(commits_upserted) +
         ",\"releases_upserted\":" + std::to_string(releases_upserted) +
+        ",\"kb_issues_indexed\":" + std::to_string(kb_build.issues_indexed) +
+        ",\"kb_pulls_indexed\":" + std::to_string(kb_build.pulls_indexed) +
+        ",\"kb_commits_indexed\":" + std::to_string(kb_build.commits_indexed) +
+        ",\"kb_releases_indexed\":" + std::to_string(kb_build.releases_indexed) +
+        ",\"kb_total_indexed\":" + std::to_string(kb_build.total()) +
         "}",
         "application/json");
 }

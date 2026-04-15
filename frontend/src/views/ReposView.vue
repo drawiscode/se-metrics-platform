@@ -33,6 +33,7 @@
       </tbody>
     </table>
 
+    <p v-if="syncSummary" class="ok">{{ syncSummary }}</p>
     <pre v-if="lastSync" class="pre">{{ lastSync }}</pre>
   </section>
 </template>
@@ -48,6 +49,7 @@
         fullName: '',
         busy: false,
         err: '',
+        syncSummary: '',
         lastSync: '',
       }
     },
@@ -59,6 +61,21 @@
         if (e instanceof ApiError) return `${e.status} ${e.message}\n${e.bodyText ?? ''}`
         if (e instanceof Error) return e.message
         return String(e)
+      },
+
+      setSyncResult(data) {
+        this.lastSync = JSON.stringify(data, null, 2)
+
+        if (data && data.ok && typeof data.kb_total_indexed !== 'undefined') {
+          this.syncSummary =
+            `同步成功：本次构建知识块 ${data.kb_total_indexed} 条 ` +
+            `(Issue ${data.kb_issues_indexed ?? 0} / PR ${data.kb_pulls_indexed ?? 0} / ` +
+            `Commit ${data.kb_commits_indexed ?? 0} / Release ${data.kb_releases_indexed ?? 0})`
+        } else if (data && data.ok) {
+          this.syncSummary = '同步成功'
+        } else {
+          this.syncSummary = ''
+        }
       },
 
       async load() {
@@ -92,10 +109,11 @@
       async sync(id) {
         this.err = ''
         this.busy = true
+        this.syncSummary = ''
         this.lastSync = ''
         try {
           const data = await apiPost(`/api/repos/${id}/sync`)
-          this.lastSync = JSON.stringify(data, null, 2)
+          this.setSyncResult(data)
         } catch (e) {
           this.err = this.formatErr(e)
         } finally {
@@ -106,10 +124,11 @@
       async syncFull(id) {
         this.err = ''
         this.busy = true
+        this.syncSummary = ''
         this.lastSync = ''
         try {
           const data = await apiPost(`/api/repos/${id}/sync?mode=full&issues_pages_count=1&pulls_pages_count=1&commits_pages_count=1&releases_pages_count=1`)
-          this.lastSync = JSON.stringify(data, null, 2)
+          this.setSyncResult(data)
         } catch (e) {
           this.err = this.formatErr(e)
         } finally {
@@ -120,10 +139,12 @@
       async sync_commit_files(id) {
         this.err = ''
         this.busy = true
+        this.syncSummary = ''
         this.lastSync = ''
         try {
           const data = await apiPost(`/api/repos/${id}/sync/commit_files?limit=30`)
           this.lastSync = JSON.stringify(data, null, 2)
+          this.syncSummary = data && data.ok ? '同步 commit_files 成功' : ''
         } catch (e) {
           this.err = this.formatErr(e)
         } finally {
@@ -142,5 +163,6 @@
     .tbl th, .tbl td { border: 1px solid #ddd; padding: 8px; }
     .ops { display:flex; gap:8px; }
     .err { color: #b00020; white-space: pre-wrap; }
+    .ok { color: #0f7b3c; white-space: pre-wrap; margin: 10px 0; }
     .pre { background:#f6f8fa; padding:12px; border:1px solid #e5e7eb; overflow:auto; }
 </style>
