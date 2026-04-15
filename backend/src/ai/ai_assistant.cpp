@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <ctime>
+#include <iomanip>
 
 // ============================================================
 // 辅助: URL 解析（用于 LLM API 调用）
@@ -255,30 +257,51 @@ static std::string get_repo_full_name(Db& db, int repo_id)
     return full_name;
 }
 
-static std::string build_system_prompt(const std::string& full_name, bool global_scope)
+static std::string get_current_date_ymd()
+{
+    const std::time_t now = std::time(nullptr);
+    std::tm local_tm{};
+#ifdef _WIN32
+    localtime_s(&local_tm, &now);
+#else
+    localtime_r(&now, &local_tm);
+#endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&local_tm, "%Y-%m-%d");
+    return oss.str();
+}
+
+static std::string build_system_prompt(const std::string& full_name,
+                                       bool global_scope,
+                                       const std::string& current_date)
 {
     if (global_scope) {
         return
             "你是一个软件工程 AI 助手，负责分析平台中多个仓库的开发数据。\n"
             "你可以回答关于项目历史、协作模式、代码质量、团队动态等方面的问题。\n"
+            "当前系统日期为 " + current_date + "。\n"
             "回答要求:\n"
             "1. 基于提供的证据数据作答，引用具体证据（如 'Issue #123', 'PR #45', 'Commit abc1234'）。\n"
             "2. 如果证据不足，明确指出还需要补充哪些数据。\n"
             "3. 如果上下文片段中没有相关信息，请明确告诉用户'根据现有知识库无法回答这个问题'，不要编造答案。\n"
             "4. 回答要简洁、可操作。\n"
             "5. 使用与用户提问相同的语言回答。\n"
-            "6. 如果证据来自不同仓库，请明确标注仓库来源。\n";
+            "6. 如果证据来自不同仓库，请明确标注仓库来源。\n"
+            "7. 时间判断必须以当前系统日期和提供证据为准，不要评价日期是'未来'或'过去'，也不要讨论现实时间线是否合理。\n";
     }
 
     return
         "你是一个软件工程 AI 助手，负责分析项目 '" + full_name + "' 的开发数据。\n"
         "你可以回答关于项目历史、协作模式、代码质量、团队动态等方面的问题。\n"
+        "当前系统日期为 " + current_date + "。\n"
         "回答要求:\n"
         "1. 基于提供的证据数据作答，引用具体证据（如 'Issue #123', 'PR #45', 'Commit abc1234'）。\n"
         "2. 如果证据不足，明确指出还需要补充哪些数据。\n"
         "3. 如果上下文片段中没有相关信息，请明确告诉用户'根据现有知识库无法回答这个问题'，不要编造答案。\n"
         "4. 回答要简洁、可操作。\n"
-        "5. 使用与用户提问相同的语言回答。\n";
+        "5. 使用与用户提问相同的语言回答。\n"
+        "6. 时间判断必须以当前系统日期和提供证据为准，不要评价日期是'未来'或'过去'，也不要讨论现实时间线是否合理。\n";
 }
 
 // ============================================================
@@ -503,7 +526,8 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
     auto evidence = search_knowledge(db, repo_id, question, 10);
 
     // 2. 组装 Prompt
-    std::string system_prompt = build_system_prompt(full_name, global_scope);
+    const std::string current_date = get_current_date_ymd();
+    std::string system_prompt = build_system_prompt(full_name, global_scope, current_date);
     std::string context = build_context(db, repo_id, evidence);
     std::string user_message = context + "## 问题\n" + question;
 

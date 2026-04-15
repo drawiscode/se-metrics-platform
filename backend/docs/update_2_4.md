@@ -1,4 +1,4 @@
-# 2.4 模块今日修改日志（2026-04-09）
+# 2.4 模块今日修改日志（2026-04-09, rty）
 
 ## 一、AI 问答能力增强（可不传 **repo_id**）
 
@@ -69,7 +69,7 @@
 - `backend/src/api/routes_ai.cpp`：+16 / -14
 - `backend/docs/CHANGELOG_2_4.md`：+5 / -1
 
-## 十、今日补充（2026-04-14）
+## 十、今日补充（2026-04-14, rty）
 
 ### 1) 2.4(3) 风险检测 MVP 已落地
 
@@ -123,3 +123,20 @@
 - `backend/src/api/routes_risk.cpp`：+92 / -0
 - `backend/src/risk/detector.cpp`：+636 / -0
 - `backend/src/risk/detector.h`：+52 / -0
+
+## 十二、今日补充（2026-04-15, rty）
+
+### 1) AI Prompt 时间锚点增强
+
+- 在 `backend/src/ai/ai_assistant.cpp` 中注入服务端当前日期（`YYYY-MM-DD`）到系统提示词。
+- 新增时间约束：要求模型以“当前系统日期 + 证据数据”为准，不再评论“未来/过去时间线是否合理”。
+- 覆盖全局问答和单仓库问答两种 Prompt 模式。
+
+### 2) 今日代码增删统计
+
+- **总计新增：28 行**
+- **总计删除：4 行**
+
+分文件明细：
+
+- `backend/src/ai/ai_assistant.cpp`：+28 / -4
