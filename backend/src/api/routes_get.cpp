@@ -545,6 +545,258 @@ static void get_repo_activity_handler(Db& db, const httplib::Request& req, httpl
     res.set_content(out, "application/json");
 }
 
+static int get_repo_ci_consecutive_failures(Db& db, int repo_id, int max_check)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT conclusion "
+        "FROM ci_workflow_runs "
+        "WHERE repo_id=?1 AND status='completed' "
+        "ORDER BY created_at DESC, run_id DESC "
+        "LIMIT ?2;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_int(stmt, 2, std::max(1, std::min(50, max_check)));
+
+    int consecutive = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const unsigned char* c = sqlite3_column_text(stmt, 0);
+        const std::string conclusion = c ? (const char*)c : "";
+        if (conclusion == "success") break;
+        consecutive++;
+    }
+
+    sqlite3_finalize(stmt);
+    return consecutive;
+}
+
+static void get_repo_ci_runs_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+    const int limit = std::max(1, std::min(200, get_int_param(req, "limit", 50)));
+    const int offset = std::max(0, get_int_param(req, "offset", 0));
+    const std::string status = req.has_param("status") ? req.get_param_value("status") : "";
+    const std::string conclusion = req.has_param("conclusion") ? req.get_param_value("conclusion") : "";
+
+    std::string sql =
+        "SELECT run_id, workflow_id, name, head_branch, event, status, conclusion, "
+        "created_at, updated_at, run_started_at, html_url, actor_login, run_attempt "
+        "FROM ci_workflow_runs WHERE repo_id=?";
+
+    const bool has_status = !status.empty();
+    const bool has_conclusion = !conclusion.empty();
+    if (has_status) {
+        sql += " AND status=?";
+    }
+    if (has_conclusion) {
+        sql += " AND conclusion=?";
+    }
+    sql += " ORDER BY created_at DESC, run_id DESC LIMIT ? OFFSET ?;";
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        res.status = 500;
+        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        return;
+    }
+
+    int bi = 1;
+    sqlite3_bind_int(stmt, bi++, rid);
+    if (has_status) sqlite3_bind_text(stmt, bi++, status.c_str(), -1, SQLITE_TRANSIENT);
+    if (has_conclusion) sqlite3_bind_text(stmt, bi++, conclusion.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, bi++, limit);
+    sqlite3_bind_int(stmt, bi++, offset);
+
+    std::string out = R"({"items":[)";
+    bool first = true;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        if (!first) out += ",";
+        first = false;
+
+        const long long run_id = sqlite3_column_int64(stmt, 0);
+        const long long workflow_id = sqlite3_column_int64(stmt, 1);
+        const unsigned char* name = sqlite3_column_text(stmt, 2);
+        const unsigned char* head_branch = sqlite3_column_text(stmt, 3);
+        const unsigned char* event = sqlite3_column_text(stmt, 4);
+        const unsigned char* st = sqlite3_column_text(stmt, 5);
+        const unsigned char* con = sqlite3_column_text(stmt, 6);
+        const unsigned char* created_at = sqlite3_column_text(stmt, 7);
+        const unsigned char* updated_at = sqlite3_column_text(stmt, 8);
+        const unsigned char* run_started_at = sqlite3_column_text(stmt, 9);
+        const unsigned char* html_url = sqlite3_column_text(stmt, 10);
+        const unsigned char* actor_login = sqlite3_column_text(stmt, 11);
+        const int run_attempt = sqlite3_column_int(stmt, 12);
+
+        out += std::string("{\"run_id\":") + std::to_string(run_id)
+            + ",\"workflow_id\":" + std::to_string(workflow_id)
+            + ",\"name\":\"" + util::json_escape(name ? (const char*)name : "") + "\""
+            + ",\"head_branch\":\"" + util::json_escape(head_branch ? (const char*)head_branch : "") + "\""
+            + ",\"event\":\"" + util::json_escape(event ? (const char*)event : "") + "\""
+            + ",\"status\":\"" + util::json_escape(st ? (const char*)st : "") + "\""
+            + ",\"conclusion\":\"" + util::json_escape(con ? (const char*)con : "") + "\""
+            + ",\"created_at\":\"" + util::json_escape(created_at ? (const char*)created_at : "") + "\""
+            + ",\"updated_at\":\"" + util::json_escape(updated_at ? (const char*)updated_at : "") + "\""
+            + ",\"run_started_at\":\"" + util::json_escape(run_started_at ? (const char*)run_started_at : "") + "\""
+            + ",\"html_url\":\"" + util::json_escape(html_url ? (const char*)html_url : "") + "\""
+            + ",\"actor_login\":\"" + util::json_escape(actor_login ? (const char*)actor_login : "") + "\""
+            + ",\"run_attempt\":" + std::to_string(run_attempt)
+            + "}";
+    }
+
+    sqlite3_finalize(stmt);
+    out += "]}";
+    res.set_content(out, "application/json");
+}
+
+static void get_repo_ci_health_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+
+    int completed_24h = 0;
+    int failed_24h = 0;
+    const char* sql_24h =
+        "SELECT COUNT(*), "
+        "SUM(CASE WHEN conclusion IS NOT NULL AND conclusion!='' AND conclusion!='success' THEN 1 ELSE 0 END) "
+        "FROM ci_workflow_runs "
+        "WHERE repo_id=?1 AND status='completed' AND created_at >= datetime('now','-24 hours');";
+
+    if (sqlite3_prepare_v2(sdb, sql_24h, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        sqlite3_bind_int(stmt, 1, rid);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+        {
+            completed_24h = sqlite3_column_int(stmt, 0);
+            failed_24h = sqlite3_column_int(stmt, 1);
+        }
+    }
+    if (stmt) sqlite3_finalize(stmt);
+
+    double avg_duration_hours_7d = 0.0;
+    const char* sql_duration =
+        "SELECT AVG((julianday(updated_at) - julianday(run_started_at)) * 24.0) "
+        "FROM ci_workflow_runs "
+        "WHERE repo_id=?1 AND run_started_at!='' AND updated_at!='' AND updated_at >= datetime('now','-7 days');";
+
+    stmt = nullptr;
+    if (sqlite3_prepare_v2(sdb, sql_duration, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        sqlite3_bind_int(stmt, 1, rid);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+        {
+            avg_duration_hours_7d = sqlite3_column_double(stmt, 0);
+        }
+    }
+    if (stmt) sqlite3_finalize(stmt);
+
+    std::string latest_run_at;
+    const char* sql_latest =
+        "SELECT MAX(created_at) FROM ci_workflow_runs WHERE repo_id=?1;";
+
+    stmt = nullptr;
+    if (sqlite3_prepare_v2(sdb, sql_latest, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        sqlite3_bind_int(stmt, 1, rid);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+        {
+            const unsigned char* latest = sqlite3_column_text(stmt, 0);
+            latest_run_at = latest ? (const char*)latest : "";
+        }
+    }
+    if (stmt) sqlite3_finalize(stmt);
+
+    const int consecutive_failures = get_repo_ci_consecutive_failures(db, rid, 20);
+    const double failure_rate_24h = completed_24h > 0 ? ((double)failed_24h / (double)completed_24h) : 0.0;
+
+    double score = 100.0;
+    score -= std::min(70.0, failure_rate_24h * 100.0 * 0.70);
+    score -= std::min(30.0, (double)consecutive_failures * 10.0);
+    if (completed_24h == 0) score -= 10.0;
+    if (score < 0.0) score = 0.0;
+
+    std::string health_level = "healthy";
+    if (score < 60.0) health_level = "critical";
+    else if (score < 80.0) health_level = "warning";
+
+    std::string out = std::string("{\"repo_id\":") + std::to_string(rid)
+        + ",\"health_level\":\"" + util::json_escape(health_level) + "\""
+        + ",\"score\":" + std::to_string(score)
+        + ",\"completed_24h\":" + std::to_string(completed_24h)
+        + ",\"failed_24h\":" + std::to_string(failed_24h)
+        + ",\"failure_rate_24h\":" + std::to_string(failure_rate_24h)
+        + ",\"consecutive_failures\":" + std::to_string(consecutive_failures)
+        + ",\"avg_duration_hours_7d\":" + std::to_string(avg_duration_hours_7d)
+        + ",\"latest_run_at\":\"" + util::json_escape(latest_run_at) + "\""
+        + "}";
+
+    res.set_content(out, "application/json");
+}
+
+static void get_repo_ci_trend_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+    const int days = std::max(1, std::min(60, get_int_param(req, "days", 7)));
+    const std::string window = "-" + std::to_string(days) + " days";
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT date(created_at) AS d, "
+        "COUNT(*) AS completed_count, "
+        "SUM(CASE WHEN conclusion IS NOT NULL AND conclusion!='' AND conclusion!='success' THEN 1 ELSE 0 END) AS failed_count, "
+        "AVG((julianday(updated_at) - julianday(run_started_at)) * 24.0) AS avg_duration_hours "
+        "FROM ci_workflow_runs "
+        "WHERE repo_id=?1 AND status='completed' AND created_at >= datetime('now', ?2) "
+        "GROUP BY date(created_at) "
+        "ORDER BY d ASC;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        res.status = 500;
+        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        return;
+    }
+
+    sqlite3_bind_int(stmt, 1, rid);
+    sqlite3_bind_text(stmt, 2, window.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::string out = std::string("{\"repo_id\":") + std::to_string(rid) +
+        ",\"days\":" + std::to_string(days) +
+        ",\"items\":[";
+
+    bool first = true;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        if (!first) out += ",";
+        first = false;
+
+        const unsigned char* d = sqlite3_column_text(stmt, 0);
+        const int completed = sqlite3_column_int(stmt, 1);
+        const int failed = sqlite3_column_int(stmt, 2);
+        const double avg_duration = sqlite3_column_double(stmt, 3);
+        const double failure_rate = completed > 0 ? ((double)failed / (double)completed) : 0.0;
+
+        out += std::string("{\"date\":\"") + util::json_escape(d ? (const char*)d : "") +
+            "\",\"completed\":" + std::to_string(completed) +
+            ",\"failed\":" + std::to_string(failed) +
+            ",\"failure_rate\":" + std::to_string(failure_rate) +
+            ",\"avg_duration_hours\":" + std::to_string(avg_duration) +
+            "}";
+    }
+
+    sqlite3_finalize(stmt);
+    out += "]}";
+    res.set_content(out, "application/json");
+}
+
 // 对外提供一个注册函数，只注册 GET 路由
 void register_get_routes(httplib::Server& app, Db& db)
 {
@@ -620,5 +872,23 @@ void register_get_routes(httplib::Server& app, Db& db)
             [&db](const httplib::Request& req, httplib::Response& res)
             {
                 get_repo_activity_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/ci/runs)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_ci_runs_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/ci/health)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_ci_health_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/ci/trend)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_ci_trend_handler(db, req, res);
             });
 }

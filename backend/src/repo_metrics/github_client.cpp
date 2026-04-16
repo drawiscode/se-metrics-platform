@@ -778,6 +778,102 @@ bool parse_pull_from_github_json(const GitHubResponse& gh,
     }
 }
 
+bool parse_workflow_runs_from_github(const GitHubResponse& gh,
+                                     std::vector<WorkflowRunData>& out,
+                                     std::string& error_out,
+                                     int& http_status_out)
+{
+    http_status_out = gh.status;
+    out.clear();
+
+    if (!gh.error.empty()) {
+        error_out = gh.error;
+        return false;
+    }
+    if (gh.status < 200 || gh.status >= 300) {
+        error_out = "github status " + std::to_string(gh.status);
+        return false;
+    }
+
+    try {
+        auto obj = nlohmann::json::parse(gh.body);
+        if (!obj.is_object()) {
+            error_out = "workflow runs json is not object";
+            return false;
+        }
+        if (!obj.contains("workflow_runs") || !obj["workflow_runs"].is_array()) {
+            error_out = "workflow runs missing workflow_runs array";
+            return false;
+        }
+
+        const auto& arr = obj["workflow_runs"];
+        out.reserve(arr.size());
+
+        for (const auto& it : arr) {
+            if (!it.is_object()) continue;
+
+            WorkflowRunData d;
+            if (it.contains("id") && it["id"].is_number_integer()) {
+                d.run_id = it["id"].get<long long>();
+            }
+            if (d.run_id <= 0) continue;
+
+            if (it.contains("workflow_id") && it["workflow_id"].is_number_integer()) {
+                d.workflow_id = it["workflow_id"].get<long long>();
+            }
+
+            d.name = j_get_string_or_empty(it, "name");
+            d.head_branch = j_get_string_or_empty(it, "head_branch");
+            d.event = j_get_string_or_empty(it, "event");
+            d.status = j_get_string_or_empty(it, "status");
+            d.conclusion = j_get_string_or_empty(it, "conclusion");
+            d.created_at = j_get_string_or_empty(it, "created_at");
+            d.updated_at = j_get_string_or_empty(it, "updated_at");
+            d.run_started_at = j_get_string_or_empty(it, "run_started_at");
+            d.html_url = j_get_string_or_empty(it, "html_url");
+            if (it.contains("actor") && it["actor"].is_object()) {
+                d.actor_login = j_get_string_or_empty(it["actor"], "login");
+            }
+            d.run_attempt = j_get_int_or(it, "run_attempt", 0);
+            d.raw_json = it.dump();
+
+            out.push_back(std::move(d));
+        }
+    } catch (const std::exception& e) {
+        error_out = std::string("workflow runs json parse failed: ") + e.what();
+        return false;
+    }
+
+    return true;
+}
+
+GitHubResponse github_list_workflow_runs(const std::string& full_name,
+                                         const std::string& token,
+                                         int per_page,
+                                         int page,
+                                         const std::string& status,
+                                         const std::string& event,
+                                         const std::string& branch)
+{
+    GitHubResponse out;
+    if (!validate_full_name(full_name)) {
+        out.error = "invalid full_name";
+        return out;
+    }
+
+    per_page = std::max(1, std::min(100, per_page));
+    page = std::max(1, page);
+
+    std::string path = "/repos/" + full_name + "/actions/runs?per_page=" +
+                       std::to_string(per_page) + "&page=" + std::to_string(page);
+
+    if (!status.empty()) path += "&status=" + simple_encode_url(status);
+    if (!event.empty()) path += "&event=" + simple_encode_url(event);
+    if (!branch.empty()) path += "&branch=" + simple_encode_url(branch);
+
+    return github_get_path(path, token);
+}
+
 
 
 bool github_get_commit_with_retry(const std::string& full_name,

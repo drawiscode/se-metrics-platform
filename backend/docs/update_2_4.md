@@ -158,10 +158,69 @@
 ### 3) 今日代码增删统计（上述两项功能）
 
 - 统计口径：git diff --numstat（当前未提交改动）
-- 总计新增：33 行
-- 总计删除：2 行
+- **总计新增：33 行**
+- **总计删除：2 行**
 
 分文件明细：
 
 - backend/src/api/routes_post.cpp：+9 / -0
 - frontend/src/views/ReposView.vue：+24 / -2
+
+## 十四、今日补充（2026-04-16, rty）
+
+### 1) CI 健康监控后端能力落地
+
+- 新增 GitHub Actions workflow runs 抓取与解析能力：
+- `backend/src/repo_metrics/github_client.h`
+- `backend/src/repo_metrics/github_client.cpp`
+- 新增 CI 运行数据落库表 `ci_workflow_runs`（含去重键与查询索引）：
+- `backend/src/db/db.cpp`
+- 在仓库同步主流程中接入 CI 数据同步与健康告警触发（`ci_pipeline_unhealthy`）：
+- `backend/src/api/routes_post.cpp`
+- 新增 CI 查询接口：
+- `GET /api/repos/{id}/ci/runs`
+- `GET /api/repos/{id}/ci/health`
+- `GET /api/repos/{id}/ci/trend?days=7`
+- 对应实现文件：`backend/src/api/routes_get.cpp`
+
+### 2) 前端 CI 健康与趋势可视化完善
+
+- 仓库列表页同步结果增加 CI 指标摘要（运行记录、失败率、连续失败、告警数）：
+- `frontend/src/views/ReposView.vue`
+- 仓库详情页新增 CI Health 面板、Recent CI Runs 列表、CI Failure Trend 趋势图与明细表：
+- `frontend/src/views/RepoDetailView.vue`
+
+### 3) Hybrid RAG 检索与问答优化
+
+- 在 `backend/src/ai/knowledge_base.cpp` 中增强检索召回与排序：
+- 中文关键词切分增强（补充双字切片），提升“贡献者/告警类型”等问法召回率。
+- 检索范围由 `title+content` 扩展到 `author/source_type/source_id`，并引入差异化打分。
+- 候选池大小按 `top_k` 动态放大（上限保护），减少漏召回。
+- 无命中时增加最近知识块兜底返回，避免问答直接缺证据失败。
+- 在 `backend/src/ai/ai_assistant.cpp` 中补充 Hybrid RAG 问答策略：
+- 对贡献者类问题先走本地结构化统计（commit 聚合）生成上下文，再交给 LLM 生成自然语言回答。
+- 保留 LLM 最终生成风格，同时通过结构化上下文提升可解释性与稳定性。
+
+### 4) 测试命令补充
+
+- 在路由测试脚本中补充 CI 健康相关接口调用示例（含 trend）：
+- `backend/test/routes_test.txt`
+
+### 5) 今日代码增删统计（当前未提交改动）
+
+- 统计口径：`git diff --numstat`
+- **总计新增：1114 行**
+- **总计删除：9 行**
+
+分文件明细：
+
+- `backend/src/ai/ai_assistant.cpp`：+145 / -0
+- `backend/src/ai/knowledge_base.cpp`：+81 / -6
+- `backend/src/api/routes_get.cpp`：+270 / -0
+- `backend/src/api/routes_post.cpp`：+224 / -1
+- `backend/src/db/db.cpp`：+26 / -0
+- `backend/src/repo_metrics/github_client.cpp`：+96 / -0
+- `backend/src/repo_metrics/github_client.h`：+30 / -0
+- `backend/test/routes_test.txt`：+26 / -1
+- `frontend/src/views/RepoDetailView.vue`：+208 / -0
+- `frontend/src/views/ReposView.vue`：+8 / -0

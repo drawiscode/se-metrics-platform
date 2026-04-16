@@ -8,6 +8,22 @@
 #include <algorithm>
 #include <iostream>
 
+static std::vector<std::string> split_utf8_chars(const std::string& s)
+{
+    std::vector<std::string> out;
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        int len = 1;
+        if ((c & 0xE0) == 0xC0) len = 2;
+        else if ((c & 0xF0) == 0xE0) len = 3;
+        else if ((c & 0xF8) == 0xF0) len = 4;
+        if (i + len > s.size()) len = 1;
+        out.push_back(s.substr(i, len));
+        i += len;
+    }
+    return out;
+}
+
 // ============================================================
 // 辅助: 从用户查询中提取关键词
 // 规则: 按空格/标点分隔; 中文与 ASCII 交界处分隔; 去重
@@ -26,10 +42,21 @@ static std::vector<std::string> extract_keywords(const std::string& query)
         cur_ascii.clear();
     };
     auto flush_cjk = [&]() {
-        if (!cur_cjk.empty()) {
+        if (cur_cjk.empty()) return;
+
+        // 中文短语直接作为候选词，同时补充双字切片提升“贡献者/告警”等问法召回率。
+        auto chars = split_utf8_chars(cur_cjk);
+        if (chars.size() <= 4) {
             keywords.push_back(cur_cjk);
-            cur_cjk.clear();
         }
+        if (chars.size() == 1) {
+            keywords.push_back(chars[0]);
+        } else {
+            for (size_t i = 0; i + 1 < chars.size(); ++i) {
+                keywords.push_back(chars[i] + chars[i + 1]);
+            }
+        }
+        cur_cjk.clear();
     };
 
     for (size_t i = 0; i < query.size(); ) {
@@ -366,8 +393,11 @@ std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
     std::string or_clauses;
     for (size_t i = 0; i < keywords.size(); i++) {
         if (i > 0) or_clauses += " OR ";
-        or_clauses += "LOWER(title||' '||content) LIKE ?" + std::to_string(repo_id > 0 ? i + 2 : i + 1);
+        or_clauses += "LOWER(title||' '||content||' '||author||' '||source_type||' '||source_id) LIKE ?"
+                   + std::to_string(repo_id > 0 ? i + 2 : i + 1);
     }
+
+    const int candidate_limit = std::min(2000, std::max(200, top_k * 50));
 
     std::string sql =
         "SELECT id, repo_id, source_type, source_id, title, content, author, event_time "
@@ -377,7 +407,7 @@ std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
     } else {
         sql += "WHERE (" + or_clauses + ") ";
     }
-    sql += "LIMIT 200;";
+    sql += "LIMIT " + std::to_string(candidate_limit) + ";";
 
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
@@ -410,15 +440,22 @@ std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
         auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? (const char*)v6 : "";
         auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? (const char*)v7 : "";
 
-        // 评分: 标题命中 +2, 内容命中 +1（每个关键词独立计分）
+        // 评分: 标题/作者/source 命中优先，提升对“贡献者/规则类型/编号”类问题的召回排序。
         double score = 0.0;
-        std::string tl = c.title, cl = c.content;
+        std::string tl = c.title, cl = c.content, al = c.author, sl = c.source_type, il = c.source_id;
         std::transform(tl.begin(), tl.end(), tl.begin(), ::tolower);
         std::transform(cl.begin(), cl.end(), cl.begin(), ::tolower);
+        std::transform(al.begin(), al.end(), al.begin(), ::tolower);
+        std::transform(sl.begin(), sl.end(), sl.begin(), ::tolower);
+        std::transform(il.begin(), il.end(), il.begin(), ::tolower);
 
         for (const auto& kw : keywords) {
             if (tl.find(kw) != std::string::npos) score += 2.0;
             if (cl.find(kw) != std::string::npos) score += 1.0;
+            if (al.find(kw) != std::string::npos) score += 2.5;
+            if (sl.find(kw) != std::string::npos) score += 1.2;
+            if (il.find(kw) != std::string::npos) score += 1.6;
+            if (!al.empty() && al == kw) score += 3.0;
         }
         c.score = score;
         scored.push_back({c, score});
@@ -432,6 +469,44 @@ std::vector<KnowledgeChunk> search_knowledge(Db& db, int repo_id,
     int n = std::min(top_k, static_cast<int>(scored.size()));
     for (int i = 0; i < n; i++)
         results.push_back(std::move(scored[i].chunk));
+
+    // 无命中时兜底：返回最近知识块，避免 AI 直接“无证据可答”。
+    if (results.empty()) {
+        std::string fallback_sql =
+            "SELECT id, repo_id, source_type, source_id, title, content, author, event_time "
+            "FROM knowledge_chunks ";
+        if (repo_id > 0) {
+            fallback_sql += "WHERE repo_id=?1 ";
+            fallback_sql += "ORDER BY event_time DESC, id DESC LIMIT ?2;";
+        } else {
+            fallback_sql += "ORDER BY event_time DESC, id DESC LIMIT ?1;";
+        }
+
+        sqlite3_stmt* fallback_stmt = nullptr;
+        if (sqlite3_prepare_v2(sdb, fallback_sql.c_str(), -1, &fallback_stmt, nullptr) == SQLITE_OK) {
+            if (repo_id > 0) {
+                sqlite3_bind_int(fallback_stmt, 1, repo_id);
+                sqlite3_bind_int(fallback_stmt, 2, top_k);
+            } else {
+                sqlite3_bind_int(fallback_stmt, 1, top_k);
+            }
+
+            while (sqlite3_step(fallback_stmt) == SQLITE_ROW) {
+                KnowledgeChunk c;
+                c.id         = sqlite3_column_int(fallback_stmt, 0);
+                c.repo_id    = sqlite3_column_int(fallback_stmt, 1);
+                auto v2 = sqlite3_column_text(fallback_stmt, 2); c.source_type = v2 ? (const char*)v2 : "";
+                auto v3 = sqlite3_column_text(fallback_stmt, 3); c.source_id   = v3 ? (const char*)v3 : "";
+                auto v4 = sqlite3_column_text(fallback_stmt, 4); c.title       = v4 ? (const char*)v4 : "";
+                auto v5 = sqlite3_column_text(fallback_stmt, 5); c.content     = v5 ? (const char*)v5 : "";
+                auto v6 = sqlite3_column_text(fallback_stmt, 6); c.author      = v6 ? (const char*)v6 : "";
+                auto v7 = sqlite3_column_text(fallback_stmt, 7); c.event_time  = v7 ? (const char*)v7 : "";
+                c.score = 0.1;
+                results.push_back(std::move(c));
+            }
+            sqlite3_finalize(fallback_stmt);
+        }
+    }
 
     return results;
 }

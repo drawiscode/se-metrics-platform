@@ -71,6 +71,14 @@
             `同步成功：本次构建知识块 ${data.kb_total_indexed} 条 ` +
             `(Issue ${data.kb_issues_indexed ?? 0} / PR ${data.kb_pulls_indexed ?? 0} / ` +
             `Commit ${data.kb_commits_indexed ?? 0} / Release ${data.kb_releases_indexed ?? 0})`
+
+          if (typeof data.ci_runs_upserted !== 'undefined') {
+            this.syncSummary +=
+              `\nCI：新增/更新 ${data.ci_runs_upserted} 条运行记录，` +
+              `24h失败率 ${(Number(data.ci_failure_rate_24h ?? 0) * 100).toFixed(1)}%，` +
+              `连续失败 ${data.ci_consecutive_failures ?? 0} 次，` +
+              `新增CI告警 ${data.ci_alerts_created ?? 0} 条`
+          }
         } else if (data && data.ok) {
           this.syncSummary = '同步成功'
         } else {

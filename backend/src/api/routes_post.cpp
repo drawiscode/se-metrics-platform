@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 #include "repo_metrics/github_client.h"
 #include <nlohmann/json.hpp>
+#include <algorithm>
 
 static void print_deubg_pages(int pages,std::string prefix)
 {
@@ -220,6 +221,203 @@ static bool db_finish_sync_run(Db& db, long long run_id, const std::string& stat
     sqlite3_bind_text(stmt, 2, error.empty() ? nullptr : error.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 3, (sqlite3_int64)run_id);
     int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+static int db_upsert_ci_workflow_run(Db& db, int repo_id, const WorkflowRunData& run)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "INSERT INTO ci_workflow_runs(" 
+        "repo_id, run_id, workflow_id, name, head_branch, event, status, conclusion, "
+        "created_at, updated_at, run_started_at, html_url, actor_login, run_attempt, raw_json) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) "
+        "ON CONFLICT(repo_id, run_id) DO UPDATE SET "
+        "workflow_id=excluded.workflow_id, name=excluded.name, head_branch=excluded.head_branch, "
+        "event=excluded.event, status=excluded.status, conclusion=excluded.conclusion, "
+        "created_at=excluded.created_at, updated_at=excluded.updated_at, run_started_at=excluded.run_started_at, "
+        "html_url=excluded.html_url, actor_login=excluded.actor_login, run_attempt=excluded.run_attempt, "
+        "raw_json=excluded.raw_json;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)run.run_id);
+    sqlite3_bind_int64(stmt, 3, (sqlite3_int64)run.workflow_id);
+    sqlite3_bind_text(stmt, 4, run.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, run.head_branch.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, run.event.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, run.status.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, run.conclusion.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 9, run.created_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 10, run.updated_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 11, run.run_started_at.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 12, run.html_url.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 13, run.actor_login.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 14, run.run_attempt);
+    sqlite3_bind_text(stmt, 15, run.raw_json.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE ? 1 : 0;
+}
+
+static bool sync_repo_ci_workflow_runs(Db& db,
+                                       int repo_id,
+                                       const std::string& full_name,
+                                       const std::string& token,
+                                       long long run_id,
+                                       httplib::Response& res,
+                                       int& upserted_out,
+                                       int pages_count)
+{
+    upserted_out = 0;
+    const int per_page = 100;
+    const int max_pages = std::max(1, std::min(10, pages_count));
+
+    for (int page = 1; page <= max_pages; ++page)
+    {
+        GitHubResponse gh = github_list_workflow_runs(full_name, token, per_page, page, "", "", "");
+        std::vector<WorkflowRunData> runs;
+        std::string err;
+        int http_status = 0;
+
+        if (!parse_workflow_runs_from_github(gh, runs, err, http_status))
+        {
+            if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
+            res.status = 502;
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            return false;
+        }
+
+        if (runs.empty()) break;
+
+        for (const auto& run : runs)
+        {
+            upserted_out += db_upsert_ci_workflow_run(db, repo_id, run);
+        }
+
+        if ((int)runs.size() < per_page) break;
+    }
+
+    return true;
+}
+
+static double db_ci_failure_rate_24h(Db& db, int repo_id, int& completed_out)
+{
+    completed_out = 0;
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT "
+        "COUNT(*) AS completed_count, "
+        "SUM(CASE WHEN conclusion IS NOT NULL AND conclusion!='' AND conclusion!='success' THEN 1 ELSE 0 END) AS failed_count "
+        "FROM ci_workflow_runs "
+        "WHERE repo_id=?1 AND status='completed' AND created_at >= datetime('now','-24 hours');";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0.0;
+    sqlite3_bind_int(stmt, 1, repo_id);
+
+    int failed = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        completed_out = sqlite3_column_int(stmt, 0);
+        failed = sqlite3_column_int(stmt, 1);
+    }
+    sqlite3_finalize(stmt);
+
+    if (completed_out <= 0) return 0.0;
+    return (double)failed / (double)completed_out;
+}
+
+static int db_ci_consecutive_failures(Db& db, int repo_id, int max_check)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT conclusion "
+        "FROM ci_workflow_runs "
+        "WHERE repo_id=?1 AND status='completed' "
+        "ORDER BY created_at DESC, run_id DESC "
+        "LIMIT ?2;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_int(stmt, 2, std::max(1, std::min(50, max_check)));
+
+    int consecutive = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const unsigned char* c = sqlite3_column_text(stmt, 0);
+        std::string conclusion = c ? (const char*)c : "";
+        if (conclusion == "success") break;
+        consecutive++;
+    }
+
+    sqlite3_finalize(stmt);
+    return consecutive;
+}
+
+static bool db_has_recent_open_ci_alert(Db& db, int repo_id, int within_hours)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT 1 FROM risk_alert_events "
+        "WHERE repo_id=?1 AND alert_type='ci_pipeline_unhealthy' AND status='open' "
+        "AND created_at >= datetime('now', ?2) LIMIT 1;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, repo_id);
+    const std::string window = "-" + std::to_string(std::max(1, within_hours)) + " hours";
+    sqlite3_bind_text(stmt, 2, window.c_str(), -1, SQLITE_TRANSIENT);
+    const bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return exists;
+}
+
+static bool db_insert_ci_health_alert(Db& db,
+                                      int repo_id,
+                                      double failure_rate_24h,
+                                      int completed_24h,
+                                      int consecutive_failures)
+{
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+
+    nlohmann::json evidence;
+    evidence["failure_rate_24h"] = failure_rate_24h;
+    evidence["completed_runs_24h"] = completed_24h;
+    evidence["consecutive_failures"] = consecutive_failures;
+
+    const std::string severity = (failure_rate_24h >= 0.7 || consecutive_failures >= 5)
+        ? "critical"
+        : "warning";
+    const std::string suggested_action =
+        "Inspect failing workflow jobs, prioritize fixing flaky tests/build steps, and verify required checks on default branch.";
+    const std::string evidence_json = evidence.dump();
+
+    const char* sql =
+        "INSERT INTO risk_alert_events(" 
+        "run_id, repo_id, alert_type, metric_name, window_start, window_end, "
+        "current_value, baseline_value, threshold_value, severity, scope_type, scope_id, "
+        "suggested_action, status, evidence_json) "
+        "VALUES (NULL, ?1, 'ci_pipeline_unhealthy', 'ci_failure_rate_24h', datetime('now','-24 hours'), datetime('now'), "
+        "?2, 0.20, 0.40, ?3, 'repo', ?4, ?5, 'open', ?6);";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_double(stmt, 2, failure_rate_24h);
+    sqlite3_bind_text(stmt, 3, severity.c_str(), -1, SQLITE_TRANSIENT);
+    const std::string scope_id = std::to_string(repo_id);
+    sqlite3_bind_text(stmt, 4, scope_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, suggested_action.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, evidence_json.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
 }
@@ -871,6 +1069,8 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     int releases_page_start = get_int_query(req, "releases_page_start", 1);
     int releases_pages_count = get_int_query(req, "releases_pages_count", 1);
 
+    int ci_pages_count = get_int_query(req, "ci_pages_count", 2);
+
     //防止增量模式下其他参数产生污染
     if (incremental)
     {
@@ -884,6 +1084,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         pulls_pages_count = 50;
         commits_pages_count = 50;
         releases_pages_count = 50;
+        ci_pages_count = 3;
     }
 
     std::string issues_cursor, pulls_cursor, commits_cursor, releases_cursor;
@@ -901,7 +1102,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
  
     if (!sync_repo_snapshot(db, rid, full_name, token, run_id, res)) return;
 
-    int issues_upserted = 0, pulls_upserted = 0, commits_upserted = 0, releases_upserted = 0;
+    int issues_upserted = 0, pulls_upserted = 0, commits_upserted = 0, releases_upserted = 0, ci_runs_upserted = 0;
     std::string new_issues_cursor = issues_cursor;
     std::string new_pulls_cursor = pulls_cursor;
     std::string new_commits_cursor = commits_cursor;
@@ -927,6 +1128,22 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
                             incremental ? releases_cursor : std::string(""),
                             new_releases_cursor)) return;
 
+    if (!sync_repo_ci_workflow_runs(db, rid, full_name, token, run_id, res,
+                                    ci_runs_upserted, ci_pages_count)) return;
+
+    int ci_completed_24h = 0;
+    const double ci_failure_rate_24h = db_ci_failure_rate_24h(db, rid, ci_completed_24h);
+    const int ci_consecutive_failures = db_ci_consecutive_failures(db, rid, 20);
+
+    int ci_alerts_created = 0;
+    const bool ci_unhealthy = (ci_completed_24h >= 5 && ci_failure_rate_24h >= 0.40)
+        || (ci_consecutive_failures >= 3);
+    if (ci_unhealthy && !db_has_recent_open_ci_alert(db, rid, 12)) {
+        if (db_insert_ci_health_alert(db, rid, ci_failure_rate_24h, ci_completed_24h, ci_consecutive_failures)) {
+            ci_alerts_created++;
+        }
+    }
+
     // 只有全部成功才推进 cursor
     if (incremental)
     {
@@ -947,6 +1164,11 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         ",\"pulls_upserted\":" + std::to_string(pulls_upserted) +
         ",\"commits_upserted\":" + std::to_string(commits_upserted) +
         ",\"releases_upserted\":" + std::to_string(releases_upserted) +
+        ",\"ci_runs_upserted\":" + std::to_string(ci_runs_upserted) +
+        ",\"ci_completed_24h\":" + std::to_string(ci_completed_24h) +
+        ",\"ci_failure_rate_24h\":" + std::to_string(ci_failure_rate_24h) +
+        ",\"ci_consecutive_failures\":" + std::to_string(ci_consecutive_failures) +
+        ",\"ci_alerts_created\":" + std::to_string(ci_alerts_created) +
         ",\"kb_issues_indexed\":" + std::to_string(kb_build.issues_indexed) +
         ",\"kb_pulls_indexed\":" + std::to_string(kb_build.pulls_indexed) +
         ",\"kb_commits_indexed\":" + std::to_string(kb_build.commits_indexed) +
@@ -1044,4 +1266,5 @@ void register_post_routes(httplib::Server& app, Db& db)
                                      "application/json");
                  }
              });
+
 }

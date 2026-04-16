@@ -26,3 +26,28 @@ https://github.com/octocat/Hello-World
 
 
 https://api.github.com/repos/octocat/Hello-World
+
+
+# ==============================
+# CI 健康监控测试
+# ==============================
+
+# 1) 同步并拉取 CI 运行数据（可通过 ci_pages_count 控制页数）
+Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/repos/1/sync?ci_pages_count=2" | ConvertTo-Json -Depth 10
+
+
+# 2) 查看 CI 运行明细（支持 status/conclusion 过滤）
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/ci/runs?limit=20" | ConvertTo-Json -Depth 10
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/ci/runs?status=completed&conclusion=failure&limit=20" | ConvertTo-Json -Depth 10
+
+
+# 3) 查看 CI 健康摘要
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/ci/health" | ConvertTo-Json -Depth 10
+
+
+# 3.1) 查看 CI 趋势（按天统计失败率）
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/ci/trend?days=14" | ConvertTo-Json -Depth 10
+
+
+# 4) 查看风险告警（CI 异常会写入 alert_type=ci_pipeline_unhealthy）
+Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/repos/1/risk/alerts?limit=20" | ConvertTo-Json -Depth 10

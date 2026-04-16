@@ -20,6 +20,42 @@
       </div>
 
       <div class="card">
+        <h3>CI Health</h3>
+        <div class="ci-head" v-if="ciHealth">
+          <span class="pill" :class="levelClass(ciHealth.health_level)">{{ ciHealth.health_level }}</span>
+          <strong class="score">Score: {{ Number(ciHealth.score ?? 0).toFixed(1) }}</strong>
+        </div>
+        <table class="tbl" v-if="ciHealth">
+          <tbody>
+            <tr>
+              <td>24h Completed</td>
+              <td>{{ ciHealth.completed_24h ?? 0 }}</td>
+            </tr>
+            <tr>
+              <td>24h Failed</td>
+              <td>{{ ciHealth.failed_24h ?? 0 }}</td>
+            </tr>
+            <tr>
+              <td>24h Failure Rate</td>
+              <td>{{ formatPercent(ciHealth.failure_rate_24h) }}</td>
+            </tr>
+            <tr>
+              <td>Consecutive Failures</td>
+              <td>{{ ciHealth.consecutive_failures ?? 0 }}</td>
+            </tr>
+            <tr>
+              <td>Avg Duration (7d)</td>
+              <td>{{ Number(ciHealth.avg_duration_hours_7d ?? 0).toFixed(2) }} h</td>
+            </tr>
+            <tr>
+              <td>Latest Run</td>
+              <td>{{ ciHealth.latest_run_at || '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
         <h3>Activity (days={{ days }})</h3>
         <div class="row">
           <input type="number" min="1" v-model.number="days" />
@@ -65,6 +101,83 @@
           </tbody>
         </table>
       </div>
+
+      <div class="card card-wide">
+        <div class="row row-between">
+          <h3>Recent CI Runs</h3>
+          <button :disabled="busy" @click="loadCiRuns">刷新 CI</button>
+        </div>
+        <table class="tbl" v-if="ciRuns.length">
+          <thead>
+            <tr>
+              <th>run_id</th>
+              <th>workflow</th>
+              <th>status</th>
+              <th>conclusion</th>
+              <th>created_at</th>
+              <th>actor</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in ciRuns" :key="r.run_id">
+              <td>
+                <a v-if="r.html_url" :href="r.html_url" target="_blank" rel="noreferrer">{{ r.run_id }}</a>
+                <span v-else>{{ r.run_id }}</span>
+              </td>
+              <td>{{ r.name || '-' }}</td>
+              <td>{{ r.status || '-' }}</td>
+              <td>{{ r.conclusion || '-' }}</td>
+              <td>{{ r.created_at || '-' }}</td>
+              <td>{{ r.actor_login || '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else>暂无 CI 运行数据，可先在仓库列表点击 sync。</p>
+      </div>
+
+      <div class="card card-wide">
+        <div class="row row-between">
+          <h3>CI Failure Trend</h3>
+          <div class="row compact-row">
+            <label for="trendDays">days</label>
+            <input id="trendDays" type="number" min="1" max="60" v-model.number="ciTrendDays" />
+            <button :disabled="busy" @click="loadCiTrend">加载趋势</button>
+          </div>
+        </div>
+
+        <div class="trend-wrap" v-if="ciTrend.length">
+          <svg viewBox="0 0 520 180" class="trend-svg" role="img" aria-label="CI failure rate trend">
+            <line x1="28" y1="20" x2="28" y2="156" class="axis" />
+            <line x1="28" y1="156" x2="500" y2="156" class="axis" />
+            <polyline :points="ciTrendPoints" class="trend-line" />
+            <g v-for="(p, idx) in ciTrendPointObjects" :key="`${p.date}-${idx}`">
+              <circle :cx="p.x" :cy="p.y" r="3.5" class="trend-dot" />
+            </g>
+          </svg>
+        </div>
+
+        <table class="tbl" v-if="ciTrend.length">
+          <thead>
+            <tr>
+              <th>date</th>
+              <th>completed</th>
+              <th>failed</th>
+              <th>failure_rate</th>
+              <th>avg_duration_hours</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in ciTrend" :key="t.date">
+              <td>{{ t.date }}</td>
+              <td>{{ t.completed ?? 0 }}</td>
+              <td>{{ t.failed ?? 0 }}</td>
+              <td>{{ formatPercent(t.failure_rate) }}</td>
+              <td>{{ Number(t.avg_duration_hours ?? 0).toFixed(2) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else>暂无趋势数据。</p>
+      </div>
     </div>
   </section>
 </template>
@@ -84,6 +197,10 @@
 
                 metrics: null,
                 health: null,
+                ciHealth: null,
+                ciRuns: [],
+                ciTrendDays: 7,
+                ciTrend: [],
 
                 days: 30,
                 activity: [],
@@ -100,6 +217,31 @@
             },
             healthText() {
             return this.health ? JSON.stringify(this.health, null, 2) : ''
+            },
+            ciTrendPointObjects() {
+              if (!this.ciTrend.length) return []
+
+              const width = 520
+              const height = 180
+              const left = 28
+              const right = 20
+              const top = 20
+              const bottom = 24
+
+              const rates = this.ciTrend.map((t) => Number(t.failure_rate ?? 0))
+              const maxRate = Math.max(0.05, ...rates)
+              const n = this.ciTrend.length
+              const innerW = width - left - right
+              const innerH = height - top - bottom
+
+              return this.ciTrend.map((t, idx) => {
+                const x = n <= 1 ? left + innerW / 2 : left + (idx * innerW) / (n - 1)
+                const y = top + (1 - Number(t.failure_rate ?? 0) / maxRate) * innerH
+                return { x, y, date: t.date }
+              })
+            },
+            ciTrendPoints() {
+              return this.ciTrendPointObjects.map((p) => `${p.x},${p.y}`).join(' ')
             },
         },
         mounted() {
@@ -118,6 +260,9 @@
                 try {
                     this.metrics = await apiGet(`/api/repos/${this.repoId}/metrics`)
                     this.health = await apiGet(`/api/repos/${this.repoId}/health`)
+                    this.ciHealth = await apiGet(`/api/repos/${this.repoId}/ci/health`)
+                    await this.loadCiRuns()
+                    await this.loadCiTrend()
                     await this.loadActivity()
 
                     const hf = await apiGet(`/api/repos/${this.repoId}/hotfiles`)
@@ -136,17 +281,80 @@
                 const data = await apiGet(`/api/repos/${this.repoId}/activity?days=${this.days}`)
                 this.activity = data.items ?? data
             },
+
+            async loadCiRuns() {
+              const data = await apiGet(`/api/repos/${this.repoId}/ci/runs?limit=8`)
+              this.ciRuns = data.items ?? data
+            },
+
+            async loadCiTrend() {
+              const d = Math.max(1, Math.min(60, Number(this.ciTrendDays || 7)))
+              this.ciTrendDays = d
+              const data = await apiGet(`/api/repos/${this.repoId}/ci/trend?days=${d}`)
+              this.ciTrend = data.items ?? []
+            },
+
+            formatPercent(v) {
+              const n = Number(v ?? 0)
+              return `${(n * 100).toFixed(1)}%`
+            },
+
+            levelClass(level) {
+              if (level === 'critical') return 'is-critical'
+              if (level === 'warning') return 'is-warning'
+              return 'is-healthy'
+            },
         },
     }
 </script>
 
 <style scoped>
     .row { display:flex; gap:12px; align-items:center; margin-bottom: 12px; }
+        .row-between { justify-content: space-between; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
     .card { border:1px solid #e5e7eb; padding:12px; border-radius:8px; background:#fff; }
+        .card-wide { grid-column: 1 / -1; }
     .tbl { border-collapse: collapse; width: 100%; }
     .tbl th, .tbl td { border: 1px solid #ddd; padding: 6px 8px; }
     .pre { background:#f6f8fa; padding:12px; border:1px solid #e5e7eb; overflow:auto; max-height: 320px; }
     .err { color: #b00020; white-space: pre-wrap; }
     input[type="number"] { width: 120px; padding: 4px 6px; }
+        .ci-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+        .score { font-size: 16px; }
+        .pill {
+          display:inline-block;
+          border-radius: 999px;
+          padding: 2px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: .04em;
+        }
+        .is-healthy { background:#d1fae5; color:#065f46; }
+        .is-warning { background:#fef3c7; color:#92400e; }
+        .is-critical { background:#fee2e2; color:#991b1b; }
+        .compact-row { gap: 8px; margin-bottom: 0; }
+        .trend-wrap {
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 8px;
+          background: #fcfcfd;
+          margin-bottom: 10px;
+          overflow-x: auto;
+        }
+        .trend-svg { width: 100%; min-width: 500px; height: 180px; display: block; }
+        .axis { stroke: #cbd5e1; stroke-width: 1; }
+        .trend-line {
+          fill: none;
+          stroke: #0f766e;
+          stroke-width: 2.5;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .trend-dot { fill: #0f766e; }
+
+        @media (max-width: 900px) {
+          .grid { grid-template-columns: 1fr; }
+          .card-wide { grid-column: auto; }
+        }
 </style>

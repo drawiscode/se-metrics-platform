@@ -260,6 +260,32 @@ void Db::init_schema()
     CREATE INDEX IF NOT EXISTS idx_risk_events_repo_created ON risk_alert_events(repo_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_risk_events_repo_status ON risk_alert_events(repo_id, status, severity);
 
+    -- 2.3 CI 健康监控: GitHub Actions 工作流运行数据
+    CREATE TABLE IF NOT EXISTS ci_workflow_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id INTEGER NOT NULL,
+        run_id INTEGER NOT NULL,
+        workflow_id INTEGER NOT NULL DEFAULT 0,
+        name TEXT NOT NULL DEFAULT '',
+        head_branch TEXT NOT NULL DEFAULT '',
+        event TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT '',
+        conclusion TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        run_started_at TEXT NOT NULL DEFAULT '',
+        html_url TEXT NOT NULL DEFAULT '',
+        actor_login TEXT NOT NULL DEFAULT '',
+        run_attempt INTEGER NOT NULL DEFAULT 0,
+        raw_json TEXT NOT NULL DEFAULT '',
+        inserted_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(repo_id, run_id),
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_created ON ci_workflow_runs(repo_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_status ON ci_workflow_runs(repo_id, status, conclusion);
+    CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_updated ON ci_workflow_runs(repo_id, updated_at DESC);
+
     )SQL";
 
     exec(schema);

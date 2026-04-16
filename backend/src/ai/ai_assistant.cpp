@@ -32,6 +32,12 @@ struct RepoSummary {
     int chunk_count = 0;
 };
 
+struct ContributorSummary {
+    std::string author_login;
+    int commit_count = 0;
+    std::string last_commit_at;
+};
+
 static std::vector<RepoSummary> list_repo_summaries(Db& db)
 {
     std::vector<RepoSummary> items;
@@ -112,6 +118,135 @@ static std::string build_repo_inventory_answer(const std::vector<RepoSummary>& r
     }
 
     oss << "\n你可以直接提问，也可以在请求里传 repo_id 以聚焦到单仓库。";
+    return oss.str();
+}
+
+static bool is_contributor_question(const std::string& question)
+{
+    auto contains = [&](const std::string& needle) {
+        return question.find(needle) != std::string::npos;
+    };
+
+    auto contains_utf8 = [&](const char* utf8_bytes) {
+        return question.find(utf8_bytes) != std::string::npos;
+    };
+
+    // UTF-8 bytes: 贡献者 / 贡献 / 提交者 / 谁 / 哪些 / 名单 / 排行 / 排名 / 维护
+    const char* zh_contributor = "\xE8\xB4\xA1\xE7\x8C\xAE\xE8\x80\x85";
+    const char* zh_contribution = "\xE8\xB4\xA1\xE7\x8C\xAE";
+    const char* zh_committer = "\xE6\x8F\x90\xE4\xBA\xA4\xE8\x80\x85";
+    const char* zh_who = "\xE8\xB0\x81";
+    const char* zh_which = "\xE5\x93\xAA\xE4\xBA\x9B";
+    const char* zh_list = "\xE5\x90\x8D\xE5\x8D\x95";
+    const char* zh_rank = "\xE6\x8E\x92\xE8\xA1\x8C";
+    const char* zh_ranking = "\xE6\x8E\x92\xE5\x90\x8D";
+    const char* zh_maintain = "\xE7\xBB\xB4\xE6\x8A\xA4";
+
+    if (contains_utf8(zh_contributor) ||
+        contains_utf8(zh_committer) ||
+        (contains_utf8(zh_contribution) && contains_utf8(zh_who)) ||
+        (contains_utf8(zh_maintain) && contains_utf8(zh_who))) {
+        return true;
+    }
+
+    if (contains_utf8(zh_contribution) &&
+        (contains_utf8(zh_which) || contains_utf8(zh_list) || contains_utf8(zh_rank) || contains_utf8(zh_ranking) ||
+         contains("top") || contains("TOP"))) {
+        return true;
+    }
+
+    std::string lower = question;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    return lower.find("contributor") != std::string::npos ||
+           lower.find("contributors") != std::string::npos ||
+           lower.find("who contributed") != std::string::npos ||
+           lower.find("top contributors") != std::string::npos ||
+           lower.find("committer") != std::string::npos ||
+           lower.find("committers") != std::string::npos;
+}
+
+static std::vector<ContributorSummary> list_top_commit_contributors(Db& db, int repo_id, int limit)
+{
+    std::vector<ContributorSummary> items;
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+
+    std::string sql;
+    if (repo_id > 0) {
+        sql =
+            "SELECT author_login, COUNT(*) AS commit_count, MAX(committed_at) AS last_commit_at "
+            "FROM commits "
+            "WHERE repo_id=?1 AND author_login IS NOT NULL AND TRIM(author_login) <> '' "
+            "GROUP BY author_login "
+            "ORDER BY commit_count DESC, author_login ASC "
+            "LIMIT ?2;";
+    } else {
+        sql =
+            "SELECT author_login, COUNT(*) AS commit_count, MAX(committed_at) AS last_commit_at "
+            "FROM commits "
+            "WHERE author_login IS NOT NULL AND TRIM(author_login) <> '' "
+            "GROUP BY author_login "
+            "ORDER BY commit_count DESC, author_login ASC "
+            "LIMIT ?1;";
+    }
+
+    if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return items;
+    }
+
+    if (repo_id > 0) {
+        sqlite3_bind_int(stmt, 1, repo_id);
+        sqlite3_bind_int(stmt, 2, limit);
+    } else {
+        sqlite3_bind_int(stmt, 1, limit);
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ContributorSummary c;
+        auto v0 = sqlite3_column_text(stmt, 0);
+        auto v2 = sqlite3_column_text(stmt, 2);
+        c.author_login = v0 ? (const char*)v0 : "";
+        c.commit_count = sqlite3_column_int(stmt, 1);
+        c.last_commit_at = v2 ? (const char*)v2 : "";
+        items.push_back(std::move(c));
+    }
+    sqlite3_finalize(stmt);
+    return items;
+}
+
+static std::string build_contributor_context(const std::string& full_name,
+                                             int repo_id,
+                                             const std::vector<ContributorSummary>& contributors)
+{
+    std::ostringstream oss;
+
+    oss << "## Contributor stats from commits table\n";
+    if (repo_id > 0) {
+        oss << "- Scope: "
+            << (full_name.empty() ? ("repo_id=" + std::to_string(repo_id)) : full_name)
+            << "\n";
+    } else {
+        oss << "- Scope: global\n";
+    }
+
+    if (contributors.empty()) {
+        oss << "- No commit author data found.\n";
+        return oss.str();
+    }
+
+    oss << "- Top contributors by commit count:\n";
+    for (size_t i = 0; i < contributors.size(); ++i) {
+        const auto& c = contributors[i];
+        oss << "  - " << c.author_login << " (commit=" << c.commit_count;
+        if (!c.last_commit_at.empty()) {
+            oss << ", last_commit=" << c.last_commit_at;
+        }
+        oss << ")\n";
+    }
+
+    oss << "- Source: commits.author_login aggregation.\n";
     return oss.str();
 }
 
@@ -524,6 +659,12 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
         }
     }
 
+    const bool contributor_question = is_contributor_question(question);
+    std::vector<ContributorSummary> contributors;
+    if (contributor_question) {
+        contributors = list_top_commit_contributors(db, repo_id, 20);
+    }
+
     // 1. 从知识库检索相关证据（Top 10）
     auto evidence = search_knowledge(db, repo_id, question, 10);
 
@@ -531,6 +672,10 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
     const std::string current_date = get_current_date_ymd();
     std::string system_prompt = build_system_prompt(full_name, global_scope, current_date);
     std::string context = build_context(db, repo_id, evidence);
+    if (contributor_question) {
+        // Keep AI-generated style while grounding with structured contributor stats.
+        context += "\n" + build_contributor_context(full_name, repo_id, contributors) + "\n";
+    }
     std::string user_message = context + "## 问题\n" + question;
 
     // 4. 读取 LLM 配置（环境变量）

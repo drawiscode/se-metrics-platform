@@ -73,6 +73,23 @@ struct RepoReleaseData {
     std::string raw_json;
 };
 
+struct WorkflowRunData {
+    long long run_id = 0;
+    long long workflow_id = 0;
+    std::string name;
+    std::string head_branch;
+    std::string event;
+    std::string status;
+    std::string conclusion;
+    std::string created_at;
+    std::string updated_at;
+    std::string run_started_at;
+    std::string html_url;
+    std::string actor_login;
+    int run_attempt = 0;
+    std::string raw_json;
+};
+
 void Judge_GitHub_Token(const std::string& token);
 
 
@@ -114,6 +131,19 @@ bool parse_pull_from_github_json(const GitHubResponse& gh,
                                        RepoPullRequestData& out_pr,
                                        std::string& err,
                                        int& http_status);
+
+bool parse_workflow_runs_from_github(const GitHubResponse& gh,
+                                     std::vector<WorkflowRunData>& out,
+                                     std::string& error_out,
+                                     int& http_status_out);
+
+GitHubResponse github_list_workflow_runs(const std::string& full_name,
+                                         const std::string& token,
+                                         int per_page,
+                                         int page,
+                                         const std::string& status /*可空*/,
+                                         const std::string& event /*可空*/,
+                                         const std::string& branch /*可空*/);
 
 // 列出 issues（返回 JSON array 字符串）
 GitHubResponse github_list_issues(const std::string& full_name,
