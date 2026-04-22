@@ -3,6 +3,7 @@
     <div class="row">
       <h2>Repo #{{ repoId }}</h2>
       <button :disabled="busy" @click="loadAll">刷新</button>
+      <RouterLink :to="`/repos/${repoId}/tasks`">任务清单</RouterLink>
       <RouterLink to="/repos">返回列表</RouterLink>
     </div>
 

@@ -692,7 +692,7 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
     std::string llm_error;
     std::string llm_response = call_llm(system_prompt, user_message,
                                         api_base, api_key, model, llm_error);
-    std::cerr << "Raw LLM Response: " << llm_response << std::endl;
+    // std::cerr << "Raw LLM Response: " << llm_response << std::endl;
     if (!llm_error.empty()) {
         answer.error = llm_error;
         return answer;

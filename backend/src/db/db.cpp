@@ -286,7 +286,34 @@ void Db::init_schema()
     CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_status ON ci_workflow_runs(repo_id, status, conclusion);
     CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_updated ON ci_workflow_runs(repo_id, updated_at DESC);
 
+
+    -- =============================================
+    -- 4.21 新增 :Tasks: AI 生成的任务清单（闭环）
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'P1',        -- P0/P1/P2
+        status TEXT NOT NULL DEFAULT 'open',        -- open/done
+        reason TEXT NOT NULL DEFAULT '',
+        actions_json TEXT NOT NULL DEFAULT '[]',    -- JSON array of steps
+        expected_benefit TEXT NOT NULL DEFAULT '',
+        verify TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'ai',          -- ai/manual
+        ai_conversation_id INTEGER,                 -- 可选：关联 ai_conversations.id
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        done_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(repo_id, title),
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_repo_status ON tasks(repo_id, status, priority);
+    CREATE INDEX IF NOT EXISTS idx_tasks_repo_created ON tasks(repo_id, created_at DESC);
+
+
     )SQL";
 
+    
     exec(schema);
 }

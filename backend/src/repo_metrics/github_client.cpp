@@ -145,7 +145,7 @@ void Judge_GitHub_Token(const std::string &token)
     {
         std::cerr << "[DEBUG] GITHUB_TOKEN loaded, length = " << token.size() << '\n';
         // 不要直接输出 token，容易泄漏机密，调试时最多输出长度或前几位做确认
-        std::cerr << "[DEBUG] GITHUB_TOKEN = " << token << '\n';
+       // std::cerr << "[DEBUG] GITHUB_TOKEN = " << token << '\n';
     }
 }
 
@@ -258,6 +258,16 @@ bool fetch_repo_snapshot_from_github(const GitHubResponse& gh,
     try 
     {
         auto j = nlohmann::json::parse(gh.body);
+
+        // ✅ 关键防御：repo snapshot 必须是 object
+        if (!j.is_object()) {
+            std::cout<<"repo snapshot json is not object"<<std::endl;
+            error_out = "repo snapshot json is not object (got " +
+                        std::string(j.is_array() ? "array" : "non-object") +
+                        ") body_head=" + gh.body.substr(0, 200);
+            return false;
+        }
+
         out.stars       = j.value("stargazers_count", 0);
         out.forks       = j.value("forks_count", 0);
         out.open_issues = j.value("open_issues_count", 0);
@@ -267,7 +277,8 @@ bool fetch_repo_snapshot_from_github(const GitHubResponse& gh,
     } 
     catch (const std::exception& e) 
     {
-        error_out = std::string("json parse failed: ") + e.what();
+        error_out = std::string("json parse failed: ") + e.what()
+            + " body_head=" + gh.body.substr(0, 200);
         return false;
     }
 
@@ -306,6 +317,9 @@ bool parse_repo_issues_from_github(const GitHubResponse& gh,
         out.reserve(arr.size());
         for (const auto& it : arr)
         {
+            // ✅ 防御：避免 it 不是 object（否则 it.value(...) 会抛 type_error.306）
+            if (!it.is_object()) continue;
+
             RepoIssueData d;
             d.number = it.value("number", 0);
             if (d.number <= 0) continue;
@@ -367,6 +381,8 @@ bool parse_repo_pulls_from_github(const GitHubResponse& gh,
         out.reserve(arr.size());
         for (const auto& it : arr)
         {
+            if (!it.is_object()) continue;
+
             RepoPullRequestData d;
             d.number = it.value("number", 0);
             if (d.number <= 0) continue;

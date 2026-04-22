@@ -1,13 +1,38 @@
 <template>
   <section>
-    <h2>仓库列表</h2>
+    <div class="row row-between">
+      <h2>仓库列表</h2>
+      <button type="button" :disabled="busy" @click="load">刷新</button>
+    </div>
+
+    <div class="card">
+      <div class="row row-between">
+        <b>自动化闭环</b>
+        <label class="row muted" style="gap:6px; margin:0;">
+          <input type="checkbox" v-model="autoGenTasksAfterSync" />
+          同步后自动生成任务清单并跳转
+        </label>
+      </div>
+      <p class="muted" style="margin:6px 0 0;">
+        说明：将调用 AI 生成 JSON 任务并持久化（去重：同 repo 同标题不会重复创建；已完成任务不会被覆盖）。
+      </p>
+    </div>
+
+    <div class="card tip">
+      <b>使用建议：</b>
+      <ol>
+        <li>添加仓库(owner/repo)</li>
+        <li>先点一次「Sync(全量)」拉取基础数据</li>
+        <li>之后日常用「Sync(增量)」即可</li>
+      </ol>
+    </div>
 
     <form class="row" @submit.prevent="createRepo">
       <input v-model="fullName" placeholder="owner/repo" />
       <button :disabled="busy || !fullName.trim()">添加</button>
-      <button type="button" :disabled="busy" @click="load">刷新</button>
     </form>
 
+    <p v-if="busy" class="muted">处理中...</p>
     <p v-if="err" class="err">{{ err }}</p>
 
     <table class="tbl" v-if="items.length">
@@ -16,30 +41,46 @@
           <th>id</th>
           <th>full_name</th>
           <th>enabled</th>
+          <th>快捷</th>
           <th>操作</th>
         </tr>
       </thead>
+
       <tbody>
         <tr v-for="r in items" :key="r.id">
           <td>{{ r.id }}</td>
-          <td><RouterLink :to="`/repos/${r.id}`">{{ r.full_name }}</RouterLink></td>
+          <td>
+            <RouterLink :to="`/repos/${r.id}`">{{ r.full_name }}</RouterLink>
+          </td>
           <td>{{ r.enabled }}</td>
+
           <td class="ops">
-            <button :disabled="busy" @click="sync(r.id)">sync(增量,当前还未添加参数,后续添加相应功能)</button>
-            <button :disabled="busy" @click="syncFull(r.id)">sync(full)</button>
-            <button :disabled="busy" @click="sync_commit_files(r.id)">sync_commit_files(先默认一次30条)</button>
+            <RouterLink class="btn-link" :to="`/ai?repo_id=${r.id}`">AI</RouterLink>
+            <RouterLink class="btn-link" :to="`/repos/${r.id}/tasks`">任务清单</RouterLink>
+          </td>
+
+          <td class="ops">
+            <button :disabled="busy" @click="syncIncremental(r.id)">Sync(增量)</button>
+            <button :disabled="busy" @click="syncFull(r.id)">Sync(全量)</button>
+            <button :disabled="busy" @click="sync_commit_files(r.id)">Sync commit_files(30)</button>
+            <button class="btn-danger" :disabled="busy" @click="deleteRepo(r.id, r.full_name)">删除</button>
           </td>
         </tr>
       </tbody>
     </table>
 
-    <p v-if="syncSummary" class="ok">{{ syncSummary }}</p>
-    <pre v-if="lastSync" class="pre">{{ lastSync }}</pre>
+    <p v-else class="muted">暂无仓库，请先添加。</p>
+
+    <div v-if="syncSummary" class="card okbox">
+      <b>最近一次操作结果</b>
+      <p class="ok">{{ syncSummary }}</p>
+      <pre v-if="lastSync" class="pre">{{ lastSync }}</pre>
+    </div>
   </section>
 </template>
 
 <script>
-  import { apiGet, apiPost, ApiError } from '../api/client'
+  import { apiGet, apiPost, apiDelete, ApiError } from '../api/client'
 
   export default {
     name: 'RepoView',
@@ -51,12 +92,30 @@
         err: '',
         syncSummary: '',
         lastSync: '',
+        autoGenTasksAfterSync: true,
+
+        lastAiAnswer: '', // 新增：调试 AI 原始输出
       }
     },
     mounted() {
       this.load()
     },
     methods: {
+      async deleteRepo(id, fullName) {
+        if (!window.confirm(`确认删除仓库吗？\n${fullName} (id=${id})`)) return
+        this.err = ''
+        this.busy = true
+        try {
+          await apiDelete(`/api/repos/${id}`)
+          await this.load()
+          this.syncSummary = '删除成功'
+          this.lastSync = ''
+        } catch (e) {
+          this.err = this.formatErr(e)
+        } finally {
+          this.busy = false
+        }
+      },
       formatErr(e) {
         if (e instanceof ApiError) return `${e.status} ${e.message}\n${e.bodyText ?? ''}`
         if (e instanceof Error) return e.message
@@ -114,14 +173,120 @@
         }
       },
 
-      async sync(id) {
+      buildAiTasksPrompt(repoId) {
+        return [
+              "请为该仓库生成【任务清单 JSON】（用于导入任务系统）。",
+              "要求：",
+              "1) 输出必须是严格 JSON，不要 Markdown。",
+              "2) 顶层格式：{ \"tasks\": [ ... ] }",
+              "3) 每个任务字段：title(string), priority('P0'|'P1'|'P2'), reason(string), actions(array of string), expected_benefit(string), verify(string).",
+              "4) 任务总数 5-10 条，按优先级覆盖 P0/P1/P2。",
+              "5) 要基于仓库数据（metrics/health、issues/PRs/commits、CI、风险告警）给出可执行任务；证据不足时给出补采集/补监控任务。",
+        ].join("\n")
+      },
+
+      extractJsonObject(text) {
+        if (!text) return null
+        const s = String(text).trim()
+
+        // 1) ```json fenced block
+        const fenced = s.match(/```json\s*([\s\S]*?)\s*```/i)
+        if (fenced && fenced[1]) return fenced[1].trim()
+
+        // 2) balanced {...}
+        const start = s.indexOf('{')
+        if (start >= 0) {
+          let depth = 0
+          for (let i = start; i < s.length; i++) {
+            const ch = s[i]
+            if (ch === '{') depth++
+            else if (ch === '}') {
+              depth--
+              if (depth === 0) return s.slice(start, i + 1)
+            }
+          }
+        }
+
+        // 3) balanced [...]
+        const as = s.indexOf('[')
+        if (as >= 0) {
+          let depth = 0
+          for (let i = as; i < s.length; i++) {
+            const ch = s[i]
+            if (ch === '[') depth++
+            else if (ch === ']') {
+              depth--
+              if (depth === 0) return s.slice(as, i + 1)
+            }
+          }
+        }
+
+        return null
+      },
+      parseAiTasksFromAnswer(answerText) {
+        const jsonStr = this.extractJsonObject(answerText)
+        if (!jsonStr) throw new Error('AI 输出中未找到可解析的 JSON。')
+
+        let payload = null
+        try { payload = JSON.parse(jsonStr) } catch (_) { payload = null }
+
+        const tasks =
+          (payload && Array.isArray(payload.tasks) && payload.tasks) ||
+          (Array.isArray(payload) && payload) ||
+          null
+
+        if (!tasks) throw new Error('AI 返回不是有效 JSON（缺少 tasks 数组）。')
+        return tasks
+      },
+
+      async generateTasksAndPersist(repoId) {
+        // 调 AI ask
+        const res = await fetch('/api/ai/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo_id: Number(repoId),
+            question: this.buildAiTasksPrompt(repoId),
+          }),
+        })
+
+        const text = await res.text()
+        if (!res.ok) throw new ApiError(res.status, 'POST /api/ai/ask failed', text)
+
+        const data = text ? JSON.parse(text) : {}
+        if (data.success === false) throw new Error(data.error || 'AI failed')
+
+        // ✅ 关键：先保存 answer
+        this.lastAiAnswer = data.answer ?? ''
+
+        //  提取 + 解析
+        const tasks = this.parseAiTasksFromAnswer(this.lastAiAnswer)
+        await apiPost(`/api/repos/${repoId}/tasks`, { items: tasks })
+      },
+
+      async syncIncremental(id) {
         this.err = ''
         this.busy = true
         this.syncSummary = ''
         this.lastSync = ''
         try {
-          const data = await apiPost(`/api/repos/${id}/sync`)
+          const data = await apiPost(`/api/repos/${id}/sync?mode=incremental`)
           this.setSyncResult(data)
+
+          if (this.autoGenTasksAfterSync) {
+            try {
+              await this.generateTasksAndPersist(id)
+              this.$router.push(`/repos/${id}/tasks`)
+            } catch (e) {
+              this.err = `同步成功，但任务清单生成失败：\n${this.formatErr(e)}`
+              if (this.lastAiAnswer) {
+                this.lastSync =
+                  (this.lastSync ? this.lastSync + '\n\n' : '') +
+                  '--- AI answer ---\n' +
+                  this.lastAiAnswer
+              }
+            }
+          }
         } catch (e) {
           this.err = this.formatErr(e)
         } finally {
@@ -130,18 +295,35 @@
       },
 
       async syncFull(id) {
-        this.err = ''
-        this.busy = true
-        this.syncSummary = ''
-        this.lastSync = ''
-        try {
-          const data = await apiPost(`/api/repos/${id}/sync?mode=full&issues_pages_count=1&pulls_pages_count=1&commits_pages_count=1&releases_pages_count=1`)
-          this.setSyncResult(data)
-        } catch (e) {
-          this.err = this.formatErr(e)
-        } finally {
-          this.busy = false
-        }
+          this.err = ''
+          this.busy = true
+          this.syncSummary = ''
+          this.lastSync = ''
+          try {
+            const data = await apiPost(
+              `/api/repos/${id}/sync?mode=full&issues_pages_count=1&pulls_pages_count=1&commits_pages_count=1&releases_pages_count=1`
+            )
+            this.setSyncResult(data)
+
+            if (this.autoGenTasksAfterSync) {
+              try {
+                await this.generateTasksAndPersist(id)
+                this.$router.push(`/repos/${id}/tasks`)
+              } catch (e) {
+                this.err = `同步成功，但任务清单生成失败：\n${this.formatErr(e)}`
+                if (this.lastAiAnswer) {
+                  this.lastSync =
+                    (this.lastSync ? this.lastSync + '\n\n' : '') +
+                    '--- AI answer ---\n' +
+                    this.lastAiAnswer
+                }
+              }
+            }
+          } catch (e) {
+            this.err = this.formatErr(e)
+          } finally {
+            this.busy = false
+          }
       },
 
       async sync_commit_files(id) {
@@ -158,19 +340,32 @@
         } finally {
           this.busy = false
         }
-      }
+      },
 
     },
   }
 </script>
 
 <style scoped>
-    .row { display:flex; gap:8px; align-items:center; margin: 8px 0 12px; }
-    input { width: 320px; padding: 6px 8px; }
-    .tbl { border-collapse: collapse; width: 100%; }
-    .tbl th, .tbl td { border: 1px solid #ddd; padding: 8px; }
-    .ops { display:flex; gap:8px; }
-    .err { color: #b00020; white-space: pre-wrap; }
-    .ok { color: #0f7b3c; white-space: pre-wrap; margin: 10px 0; }
-    .pre { background:#f6f8fa; padding:12px; border:1px solid #e5e7eb; overflow:auto; }
+  .card { border:1px solid #e5e7eb; padding:12px; border-radius:8px; background:#fff; margin: 10px 0; }
+  .row { display:flex; gap:8px; align-items:center; margin: 8px 0 12px; }
+  .row-between { justify-content: space-between; }
+  input { width: 320px; padding: 6px 8px; }
+  .tbl { border-collapse: collapse; width: 100%; }
+  .tbl th, .tbl td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
+  .ops { display:flex; gap:8px; flex-wrap: wrap; align-items: center; }
+  .err { color: #b00020; white-space: pre-wrap; }
+  .ok { color: #0f7b3c; white-space: pre-wrap; margin: 10px 0 0; }
+  .pre { background:#f6f8fa; padding:12px; border:1px solid #e5e7eb; overflow:auto; }
+  .muted { color: #6b7280; }
+  .card { border:1px solid #e5e7eb; padding:12px; border-radius:8px; background:#fff; margin: 10px 0; }
+  .tip ol { margin: 6px 0 0 18px; }
+  .okbox b { display:block; margin-bottom: 6px; }
+  .btn-link {
+    display:inline-block;
+    padding: 4px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    text-decoration: none;
+  }
 </style>

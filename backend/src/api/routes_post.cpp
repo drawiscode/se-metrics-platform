@@ -6,14 +6,14 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
-static void print_deubg_pages(int pages,std::string prefix)
+static void print_debug_pages(int pages,std::string prefix)
 {
     if(pages<=0) 
     {
         std::cerr <<"error:the "<<prefix<< " pages is "<<pages<<std::endl;
         return;
     }
-    std::cerr << prefix << "pages: " << pages << std::endl;
+    std::cerr << prefix << " pages: " << pages << std::endl;
 }
 
 static std::string max_iso8601(const std::string& a, const std::string& b)
@@ -302,6 +302,7 @@ static bool sync_repo_ci_workflow_runs(Db& db,
         if ((int)runs.size() < per_page) break;
     }
 
+    std::cout<<"ci_workflow ends"<<std::endl;
     return true;
 }
 
@@ -712,7 +713,7 @@ static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, cons
         if (page_end > 0 && page > page_end) break;
 
         //debug 信息
-        print_deubg_pages(page,"issues");
+        print_debug_pages(page,"issues");
         auto gh_issues = github_list_issues(full_name, token, "all", per_page, page, since_cursor);
 
         std::vector<RepoIssueData> items;
@@ -818,7 +819,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
                 new_cursor_out = max_iso8601(new_cursor_out, pr.updated_at);
             }
 
-            print_deubg_pages(page, "pulls");
+            print_debug_pages(page, "pulls");
             if ((int)items.size() < per_page) break;
             page++;
         }
@@ -833,7 +834,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
     {
         if (page_end > 0 && page > page_end) break;
 
-        print_deubg_pages(page, "pulls");
+        print_debug_pages(page, "pulls");
         auto gh = github_list_pulls(full_name, token, "all", per_page, page, since_cursor);
 
         std::vector<RepoPullRequestData> items;
@@ -880,7 +881,7 @@ static bool sync_repo_commits(Db& db, int rid, const std::string& full_name, con
     {
         if (page_end > 0 && page > page_end) break;
 
-        print_deubg_pages(page, "commits");
+        print_debug_pages(page, "commits");
         auto gh_commits = github_list_commits(full_name, token, per_page, page, since_cursor, "");
 
         std::vector<RepoCommitData> items;
@@ -927,7 +928,7 @@ static bool sync_repo_releases(Db& db, int rid, const std::string& full_name, co
     {
         if (page_end > 0 && page > page_end) break;
 
-        print_deubg_pages(page, "releases");
+        print_debug_pages(page, "releases");
         auto gh = github_list_releases(full_name, token, per_page, page);
 
         std::vector<RepoReleaseData> items;
@@ -1042,6 +1043,8 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
 {
     const int rid = std::stoi(req.matches[1]);
 
+
+
     std::string full_name;
     if (!db_get_repo_full_name(db, rid, full_name))
     {
@@ -1049,6 +1052,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         res.set_content(R"({"error":"repo not found"})", "application/json");
         return;
     }
+
 
     const std::string token = util::get_env("GITHUB_TOKEN", "");
 
@@ -1070,6 +1074,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     int releases_pages_count = get_int_query(req, "releases_pages_count", 1);
 
     int ci_pages_count = get_int_query(req, "ci_pages_count", 2);
+
 
     //防止增量模式下其他参数产生污染
     if (incremental)
@@ -1099,8 +1104,18 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     }
 
     const long long run_id = db_insert_sync_run(db, rid, "error", "started"); // 先占位，后面会更新
- 
-    if (!sync_repo_snapshot(db, rid, full_name, token, run_id, res)) return;
+    std::string snapshot_warn;   // ✅ snapshot 失败不致命：记录 warning 继续跑
+    {
+        httplib::Response tmp;
+        tmp.status = 200;
+        if (!sync_repo_snapshot(db, rid, full_name, token, run_id, tmp))
+        {
+            // tmp.body 形如 {"error":"..."}，这里直接取出来当 warning
+            snapshot_warn = tmp.body.empty() ? "snapshot failed" : tmp.body;
+            std::cerr << "[sync][warn] snapshot failed: " << snapshot_warn << "\n";
+            // 不 return，继续同步其它数据
+        }
+    }
 
     int issues_upserted = 0, pulls_upserted = 0, commits_upserted = 0, releases_upserted = 0, ci_runs_upserted = 0;
     std::string new_issues_cursor = issues_cursor;
@@ -1158,24 +1173,23 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
 
     if (run_id > 0) db_finish_sync_run(db, run_id, "ok", "");
 
-     res.set_content(
-        std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) +
-        ",\"issues_upserted\":" + std::to_string(issues_upserted) +
-        ",\"pulls_upserted\":" + std::to_string(pulls_upserted) +
-        ",\"commits_upserted\":" + std::to_string(commits_upserted) +
-        ",\"releases_upserted\":" + std::to_string(releases_upserted) +
-        ",\"ci_runs_upserted\":" + std::to_string(ci_runs_upserted) +
-        ",\"ci_completed_24h\":" + std::to_string(ci_completed_24h) +
-        ",\"ci_failure_rate_24h\":" + std::to_string(ci_failure_rate_24h) +
-        ",\"ci_consecutive_failures\":" + std::to_string(ci_consecutive_failures) +
-        ",\"ci_alerts_created\":" + std::to_string(ci_alerts_created) +
-        ",\"kb_issues_indexed\":" + std::to_string(kb_build.issues_indexed) +
-        ",\"kb_pulls_indexed\":" + std::to_string(kb_build.pulls_indexed) +
-        ",\"kb_commits_indexed\":" + std::to_string(kb_build.commits_indexed) +
-        ",\"kb_releases_indexed\":" + std::to_string(kb_build.releases_indexed) +
-        ",\"kb_total_indexed\":" + std::to_string(kb_build.total()) +
-        "}",
-        "application/json");
+     // ✅ 返回 warning 给前端
+    nlohmann::json out;
+    out["ok"] = true;
+    out["repo_id"] = rid;
+    out["issues_upserted"] = issues_upserted;
+    out["pulls_upserted"] = pulls_upserted;
+    out["commits_upserted"] = commits_upserted;
+    out["releases_upserted"] = releases_upserted;
+    out["ci_runs_upserted"] = ci_runs_upserted;
+    out["kb_issues_indexed"] = kb_build.issues_indexed;
+    out["kb_pulls_indexed"] = kb_build.pulls_indexed;
+    out["kb_commits_indexed"] = kb_build.commits_indexed;
+    out["kb_releases_indexed"] = kb_build.releases_indexed;
+    out["kb_total_indexed"] = kb_build.total();
+    if (!snapshot_warn.empty()) out["warning"] = "snapshot skipped: " + snapshot_warn;
+
+    res.set_content(out.dump(), "application/json; charset=utf-8");
 }
 
 

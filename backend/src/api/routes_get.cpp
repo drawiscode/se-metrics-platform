@@ -9,6 +9,8 @@
 
 static void Print_HotFiles(const int rid, const std::vector<HotFile>& hot_files)
 {
+    return;
+    
     std::cerr << "Hot files for repo_id=" << rid << ":\n";
     for (const auto& f : hot_files)
     {
@@ -21,6 +23,8 @@ static void Print_HotFiles(const int rid, const std::vector<HotFile>& hot_files)
 
 static void Print_HotDirs(const int rid, const std::vector<HotDir>& hot_dirs)
 {
+    return;
+
     std::cerr << "Hot Dirs for repo_id=" << rid << ":\n";
     for (const auto& f : hot_dirs)
     {
