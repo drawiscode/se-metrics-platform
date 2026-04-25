@@ -22,8 +22,6 @@ static std::string get_str_param(const httplib::Request& req, const std::string&
 
 static void get_repo_tasks_handler(Db& db, const httplib::Request& req, httplib::Response& res)
 {
-    //std::cout<<"sure it is the get_repo_tasks_handler"<<std::endl;
-
     const int repo_id = std::stoi(req.matches[1]);
     const int limit = std::max(1, std::min(500, get_int_param(req, "limit", 50)));
     const int offset = std::max(0, get_int_param(req, "offset", 0));
@@ -56,7 +54,8 @@ static void get_repo_tasks_handler(Db& db, const httplib::Request& req, httplib:
     sqlite3_bind_int(stmt, bind++, offset);
 
     nlohmann::json items = nlohmann::json::array();
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    while (sqlite3_step(stmt) == SQLITE_ROW) 
+    {
         nlohmann::json t;
         t["id"] = sqlite3_column_int(stmt, 0);
         t["repo_id"] = sqlite3_column_int(stmt, 1);
@@ -202,36 +201,128 @@ static void patch_task_handler(Db& db, const httplib::Request& req, httplib::Res
         return;
     }
 
-    const std::string status = body.value("status", "");
-    if (status != "open" && status != "done") {
-        res.status = 400;
-        res.set_content(R"({"error":"status must be open/done"})", kJson);
-        return;
+    const bool has_title = body.contains("title");
+    const std::string title = util::trim(body.value("title", "")); 
+
+    const bool has_status = body.contains("status");
+    const std::string status = util::trim(body.value("status", ""));
+
+    const bool has_priority = body.contains("priority");
+    const std::string priority = util::trim(body.value("priority", ""));
+
+    const bool has_reason = body.contains("reason");
+    const std::string reason = util::trim(body.value("reason", ""));
+
+    const bool has_verify = body.contains("verify");
+    const std::string verify = util::trim(body.value("verify", ""));
+
+    const bool has_actions_json = body.contains("actions_json");
+    const std::string actions_json = util::trim(body.value("actions_json", ""));
+
+    //一堆错误检查
+    {  
+        if (!has_title && !has_status && !has_priority && !has_reason && !has_verify && !has_actions_json) {
+            res.status = 400;
+            res.set_content(R"({"error":"no fields to update"})", kJson);
+            return;
+        }
+        if (has_title && title.empty()) {
+            res.status = 400;
+            res.set_content(R"({"error":"title required"})", kJson);
+            return;
+        }
+        if (has_status && status != "open" && status != "done") {
+            res.status = 400;
+            res.set_content(R"({"error":"status must be open/done"})", kJson);
+            return;
+        }
+        if (has_priority && !(priority == "P0" || priority == "P1" || priority == "P2")) {
+            res.status = 400;
+            res.set_content(R"({"error":"priority must be P0/P1/P2"})", kJson);
+            return;
+        }
+        if (has_actions_json) {
+            try {
+                auto aj = nlohmann::json::parse(actions_json.empty() ? "[]" : actions_json);
+                if (!aj.is_array()) {
+                    res.status = 400;
+                    res.set_content(R"({"error":"actions_json must be a JSON array string"})", kJson);
+                    return;
+                }
+            } catch (...) {
+                res.status = 400;
+                res.set_content(R"({"error":"actions_json invalid json"})", kJson);
+                return;
+            }
+        }
+    }
+    
+    sqlite3* sdb = db.handle();
+
+    // 若更新 title：先取 repo_id，并检查冲突
+    int repo_id = 0;
+    if (has_title) {
+        sqlite3_stmt* st = nullptr;
+        if (sqlite3_prepare_v2(sdb, "SELECT repo_id FROM tasks WHERE id=?1;", -1, &st, nullptr) != SQLITE_OK) {
+            res.status = 500; res.set_content(R"({"error":"db error"})", kJson); return;
+        }
+        sqlite3_bind_int(st, 1, task_id);
+        const int rc = sqlite3_step(st);
+        if (rc != SQLITE_ROW) { sqlite3_finalize(st); res.status = 404; res.set_content(R"({"error":"task not found"})", kJson); return; }
+        repo_id = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+
+        sqlite3_stmt* st2 = nullptr;
+        if (sqlite3_prepare_v2(sdb, "SELECT 1 FROM tasks WHERE repo_id=?1 AND title=?2 AND id<>?3 LIMIT 1;", -1, &st2, nullptr) != SQLITE_OK) {
+            res.status = 500; res.set_content(R"({"error":"db error"})", kJson); return;
+        }
+        sqlite3_bind_int(st2, 1, repo_id);
+        sqlite3_bind_text(st2, 2, title.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st2, 3, task_id);
+        const int rc2 = sqlite3_step(st2);
+        sqlite3_finalize(st2);
+        if (rc2 == SQLITE_ROW) {
+            res.status = 409;
+            res.set_content(R"({"error":"title already exists in repo"})", kJson);
+            return;
+        }
     }
 
-    sqlite3* sdb = db.handle();
+    std::vector<std::string> sets;
+    sets.reserve(8);
+    if (has_title) sets.push_back("title=?");
+    if (has_status) {
+        if (status == "done") { sets.push_back("status='done'"); sets.push_back("done_at=datetime('now')"); }
+        else { sets.push_back("status='open'"); sets.push_back("done_at=NULL"); }
+    }
+    if (has_priority) sets.push_back("priority=?");
+    if (has_reason) sets.push_back("reason=?");
+    if (has_actions_json) sets.push_back("actions_json=?");
+    if (has_verify) sets.push_back("verify=?");
+    sets.push_back("updated_at=datetime('now')");
+
+    std::string sql = "UPDATE tasks SET ";
+    for (size_t i = 0; i < sets.size(); i++) { if (i) sql += ","; sql += sets[i]; }
+    sql += " WHERE id=?;";
+
     sqlite3_stmt* stmt = nullptr;
-    const char* sql_done =
-        "UPDATE tasks SET status='done', done_at=datetime('now'), updated_at=datetime('now') WHERE id=?1;";
-    const char* sql_open =
-        "UPDATE tasks SET status='open', done_at=NULL, updated_at=datetime('now') WHERE id=?1;";
-
-    const char* sql = (status == "done") ? sql_done : sql_open;
-
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         res.status = 500;
         res.set_content(R"({"error":"db error"})", kJson);
         return;
     }
-    sqlite3_bind_int(stmt, 1, task_id);
+
+    int bind = 1;
+    if (has_title) sqlite3_bind_text(stmt, bind++, title.c_str(), -1, SQLITE_TRANSIENT);
+    if (has_priority) sqlite3_bind_text(stmt, bind++, priority.c_str(), -1, SQLITE_TRANSIENT);
+    if (has_reason) sqlite3_bind_text(stmt, bind++, reason.c_str(), -1, SQLITE_TRANSIENT);
+    if (has_actions_json) sqlite3_bind_text(stmt, bind++, actions_json.c_str(), -1, SQLITE_TRANSIENT);
+    if (has_verify) sqlite3_bind_text(stmt, bind++, verify.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, bind++, task_id);
+
     const int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE) {
-        res.status = 500;
-        res.set_content(R"({"error":"db error"})", kJson);
-        return;
-    }
+    if (rc != SQLITE_DONE) { res.status = 500; res.set_content(R"({"error":"db error"})", kJson); return; }
 
     nlohmann::json out;
     out["ok"] = true;

@@ -10,6 +10,15 @@
     <p v-if="err" class="err">{{ err }}</p>
 
     <div class="grid">
+      <div class="card card-wide">
+        <div class="row row-between">
+          <h3>仓库介绍</h3>
+          <span class="muted" v-if="introUpdatedAt">更新于：{{ introUpdatedAt }}</span>
+        </div>
+        <p v-if="introText" class="pre intro">{{ introText }}</p>
+        <p v-else class="muted">暂无介绍（首次同步成功后会自动生成）。</p>
+      </div>
+
       <div class="card">
         <h3>Metrics</h3>
         <pre class="pre">{{ metricsText }}</pre>
@@ -196,6 +205,9 @@
                 busy: false,
                 err: '',
 
+                introText: '',
+                introUpdatedAt: '',
+
                 metrics: null,
                 health: null,
                 ciHealth: null,
@@ -211,13 +223,13 @@
         },
         computed: {
             repoId() {
-            return Number(this.id)
+              return Number(this.id)
             },
             metricsText() {
-            return this.metrics ? JSON.stringify(this.metrics, null, 2) : ''
+              return this.metrics ? JSON.stringify(this.metrics, null, 2) : ''
             },
             healthText() {
-            return this.health ? JSON.stringify(this.health, null, 2) : ''
+              return this.health ? JSON.stringify(this.health, null, 2) : ''
             },
             ciTrendPointObjects() {
               if (!this.ciTrend.length) return []
@@ -259,12 +271,15 @@
                 this.err = ''
                 this.busy = true
                 try {
+
+
                     this.metrics = await apiGet(`/api/repos/${this.repoId}/metrics`)
                     this.health = await apiGet(`/api/repos/${this.repoId}/health`)
                     this.ciHealth = await apiGet(`/api/repos/${this.repoId}/ci/health`)
                     await this.loadCiRuns()
                     await this.loadCiTrend()
                     await this.loadActivity()
+                    await this.loadIntro()
 
                     const hf = await apiGet(`/api/repos/${this.repoId}/hotfiles`)
                     this.hotfiles = hf.items ?? hf
@@ -276,6 +291,11 @@
                 } finally {
                     this.busy = false
                 }
+            },
+            async loadIntro(){
+                const data = await apiGet(`/api/repos/${this.repoId}/intro`)
+                this.introText = data.intro_text ?? ''
+                this.introUpdatedAt = data.intro_updated_at ?? ''
             },
 
             async loadActivity() {
@@ -310,6 +330,9 @@
 </script>
 
 <style scoped>
+    .pre.intro { white-space: pre-wrap; max-height: none; }
+    .muted { color: #6b7280; }
+
     .row { display:flex; gap:12px; align-items:center; margin-bottom: 12px; }
         .row-between { justify-content: space-between; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }

@@ -18,4 +18,7 @@ void exec_sql(sqlite3* db, const std::string& sql);
 // 读取 KEY=VALUE 的 env 文件并写入进程环境（忽略空行/#注释）
 void load_env_file(const std::string& path);
 
+// ✅ 新增：返回去掉首尾空白后的字符串
+std::string trim(const std::string& s);
+
 } // namespace util

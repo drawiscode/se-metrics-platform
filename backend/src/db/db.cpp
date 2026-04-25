@@ -1,8 +1,25 @@
-﻿// filepath: /e:/study/SoftwareLab/lab/se-metrics-platform/backend/src/db.cpp
-#include "db.h"
+﻿#include "db.h"
+#include <iostream>
 
 #include <stdexcept>
 #include <utility>
+
+static bool has_column(sqlite3* db, const char* table, const char* col)
+{
+    std::string sql = std::string("PRAGMA table_info(") + table + ");";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    bool ok = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const unsigned char* name = sqlite3_column_text(stmt, 1); // column name
+        if (name && std::string((const char*)name) == col) { ok = true; break; }
+    }
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
 
 Db::Db(const std::string& path) : path_(path)
 {
@@ -316,4 +333,15 @@ void Db::init_schema()
 
     
     exec(schema);
+
+    // --- lightweight migrations for existing DB files ---
+    try {
+        exec("ALTER TABLE repos ADD COLUMN intro_text TEXT NOT NULL DEFAULT '';");
+    } catch (const std::exception& e) {
+    }
+
+    try {
+        exec("ALTER TABLE repos ADD COLUMN intro_updated_at TEXT;");
+    } catch (const std::exception& e) {
+    }
 }

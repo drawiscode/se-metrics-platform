@@ -55,6 +55,15 @@ static inline void trim_inplace(std::string& s)
     s.erase(std::find_if(s.rbegin(), s.rend(), not_space).base(), s.end());
 }
 
+// ✅ 新增：对外的 trim
+std::string trim(const std::string& s)
+{
+    std::string out = s;
+    trim_inplace(out);
+    return out;
+}
+
+
 static void set_env_kv(const std::string& k, const std::string& v)
 {
 #ifdef _WIN32

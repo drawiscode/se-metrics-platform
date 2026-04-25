@@ -33,39 +33,83 @@
       </p>
     </div>
 
-    <table class="tbl" v-if="items.length">
-      <thead>
-        <tr>
-          <th>priority</th>
-          <th>title</th>
-          <th>status</th>
-          <th>reason</th>
-          <th>actions</th>
-          <th>verify</th>
-          <th>op</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="t in items" :key="t.id">
-          <td><span class="pill" :class="pillClass(t.priority)">{{ t.priority }}</span></td>
-          <td class="title">{{ t.title }}</td>
-          <td>{{ t.status }}</td>
-          <td class="wrap">{{ t.reason }}</td>
-          <td class="wrap">
-            <ol v-if="parsedActions(t).length">
-              <li v-for="(a, idx) in parsedActions(t)" :key="idx">{{ a }}</li>
-            </ol>
-            <span v-else>-</span>
-          </td>
-          <td class="wrap">{{ t.verify || '-' }}</td>
-          <td class="ops">
-            <button v-if="t.status !== 'done'" :disabled="busy" @click="markDone(t.id)">完成</button>
-            <button v-else :disabled="busy" @click="reopen(t.id)">恢复</button>
-            <button :disabled="busy" @click="remove(t.id)">删除</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="tbl" v-if="items.length">
+        <thead>
+          <tr>
+            <th>priority</th>
+            <th>title</th>
+            <th>status</th>
+            <th>reason</th>
+            <th>actions</th>
+            <th>verify</th>
+            <th>op</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in items" :key="t.id">
+            <td>
+              <template v-if="editingId === t.id">
+                <select v-model="editForm.priority" class="ctl">
+                  <option value="P0">P0</option>
+                  <option value="P1">P1</option>
+                  <option value="P2">P2</option>
+                </select>
+              </template>
+              <template v-else>
+                <span class="pill" :class="pillClass(t.priority)">{{ t.priority }}</span>
+              </template>
+            </td>
+
+            <td class="title">
+              <template v-if="editingId === t.id">
+                <input v-model="editForm.title" class="ctl ctl-title" />
+              </template>
+              <template v-else>
+                {{ t.title }}
+              </template>
+            </td>
+
+            <td>{{ t.status }}</td>
+
+            <td class="wrap">
+              <textarea v-if="editingId === t.id" v-model="editForm.reason" class="ta"></textarea>
+              <span v-else>{{ t.reason }}</span>
+            </td>
+
+            <td class="wrap">
+              <template v-if="editingId === t.id">
+                <textarea v-model="editForm.actionsText" class="ta" placeholder="每行一条 action"></textarea>
+              </template>
+              <template v-else>
+                <ol v-if="parsedActions(t).length" class="actions-list">
+                  <li v-for="(a, idx) in parsedActions(t)" :key="idx" class="action-item" >{{ a }}</li>
+                </ol>
+                <span v-else>-</span>
+              </template>
+            </td>
+
+            <td class="wrap">
+              <textarea v-if="editingId === t.id" v-model="editForm.verify" class="ta"></textarea>
+              <span v-else>{{ t.verify || '-' }}</span>
+            </td>
+
+            <td class="ops">
+              <div class="ops-inner">
+                <template v-if="editingId === t.id">
+                  <button :disabled="busy" class="btn" @click="saveEdit(t.id)">保存</button>
+                  <button :disabled="busy" class="btn" @click="cancelEdit">取消</button>
+                </template>
+                <template v-else>
+                  <button :disabled="busy" class="btn" @click="startEdit(t)">编辑</button>
+                  <button v-if="t.status !== 'done'" :disabled="busy" class="btn" @click="markDone(t.id)">完成</button>
+                  <button v-else :disabled="busy" class="btn" @click="reopen(t.id)">恢复</button>
+                  <button :disabled="busy" class="btn btn-danger" @click="remove(t.id)">删除</button>
+                </template>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
     <p v-else class="muted">暂无任务。点击上方“生成/更新任务清单”。</p>
   </section>
@@ -91,6 +135,15 @@
                 tasks:'', // AI 解析后的任务数组（调试用，非必须）
 
                 sentBodyStr: '', // 发送给 AI 的 JSON 字符串（调试用，非必须）;
+
+                editingId: null,
+                editForm: {
+                  title: '',
+                  priority: 'P1',
+                  reason: '',
+                  actionsText: '',
+                  verify: '',
+                },
             }
         },
         computed: {
@@ -102,6 +155,46 @@
             this.load()
         },
         methods: {
+            startEdit(t) {
+              this.editingId = t.id
+              this.editForm = {
+                title: t.title || '',
+                priority: t.priority || 'P1',
+                reason: t.reason || '',
+                actionsText: (this.parsedActions(t) || []).join('\n'),
+                verify: t.verify || '',
+              }
+            },
+            cancelEdit() {
+              this.editingId = null
+            },
+            async saveEdit(taskId) {
+              this.err = ''
+              this.busy = true
+              try {
+                const actionsArr = String(this.editForm.actionsText || '')
+                  .split('\n')
+                  .map(s => s.trim())
+                  .filter(Boolean)
+
+                const payload = {
+                  title: this.editForm.title,
+                  priority: this.editForm.priority,
+                  reason: this.editForm.reason,
+                  verify: this.editForm.verify,
+                  actions_json: JSON.stringify(actionsArr),
+                }
+
+                await apiPatch(`/api/tasks/${taskId}`, payload)
+
+                this.editingId = null
+                await this.load()
+              } catch (e) {
+                this.err = this.formatErr(e)
+              } finally {
+                this.busy = false
+              }
+            },
             normalizeTasksForPost(tasks) {
                 const out = []
                 for (const t of (tasks || [])) {
@@ -122,13 +215,11 @@
                 }
                 return out
             },
-
             formatErr(e) {
                 if (e instanceof ApiError) return `${e.status} ${e.message}\n${e.bodyText ?? ''}`
                 if (e instanceof Error) return e.message
                 return String(e)
             },
-
             async load() {
                 this.err = ''
                 this.busy = true
@@ -142,7 +233,6 @@
                     this.busy = false
                 }
             },
-
             parsedActions(t) {
                 const raw = t.actions_json || '[]'
                 try {
@@ -152,13 +242,11 @@
                     return []
                 }
             },
-
             pillClass(p) {
                 if (p === 'P0') return 'p0'
                 if (p === 'P1') return 'p1'
                 return 'p2'
             },
-
             buildAiPrompt() {
                 return [
                     "请为该仓库生成【任务清单 JSON】（用于导入任务系统）。",
@@ -266,16 +354,11 @@
                   this.genBusy = false
                 }
             },
-
             async markDone(taskId) {
             this.err = ''
             this.busy = true
             try {
-                await fetch(`/api/tasks/${taskId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'done' }),
-                })
+                await apiPatch(`/api/tasks/${taskId}`, { status: 'done' })
                 await this.load()
             } catch (e) {
                 this.err = this.formatErr(e)
@@ -283,16 +366,11 @@
                 this.busy = false
             }
             },
-
             async reopen(taskId) {
             this.err = ''
             this.busy = true
             try {
-                await fetch(`/api/tasks/${taskId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'open' }),
-                })
+                await apiPatch(`/api/tasks/${taskId}`, { status: 'open' })
                 await this.load()
             } catch (e) {
                 this.err = this.formatErr(e)
@@ -300,7 +378,6 @@
                 this.busy = false
             }
             },
-
             async remove(taskId) {
             this.err = ''
             this.busy = true
@@ -318,11 +395,44 @@
 </script>
 
 <style scoped>
+
+    /* 垂直间距（常用）：每条之间有 8px 间隔 */
+    .actions-list { 
+      padding: 0 0 0 20px; /* 内边距：左侧缩进，右侧紧贴边框 */
+      margin: 0 5px 5px 5px;
+    }
+    .actions-list .action-item 
+    { 
+      padding: 0 0 0 0;
+      margin: 0 0 5px 0; 
+    }
+
     .row { display:flex; gap:10px; align-items:center; margin: 8px 0 12px; }
     .row-between { justify-content: space-between; }
     .tbl { border-collapse: collapse; width: 100%; }
     .tbl th, .tbl td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
-    .ops { display:flex; gap:8px; flex-wrap: wrap; }
+
+    .ops { padding: 8px; } /* 确保和其他 td 一致 */
+
+    .ops-inner {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: center;
+      min-height: 50px;           /* ✅ 让它至少接近 textarea 的最小高度 */
+    }
+
+    .btn { 
+      height: 30px; 
+      line-height: 28px; 
+      padding: 0 10px; 
+    }
+
+    .btn-danger { border: 1px solid #ef4444; background: #fff; color: #b91c1c; }
+
+    .ctl { height: 30px; }
+    .ta { width: 100%; min-height: 72px; resize: vertical; box-sizing: border-box; }
     .title { min-width: 220px; }
     .wrap { max-width: 420px; white-space: pre-wrap; }
     .card { border:1px solid #e5e7eb; padding:12px; border-radius:8px; background:#fff; margin: 12px 0; }

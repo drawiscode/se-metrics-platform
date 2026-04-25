@@ -4,7 +4,8 @@
 #include "repo_metrics/health.h"
 #include "repo_metrics/github_client.h"
 #include "repo_metrics/hotspots.h"
-
+#include <nlohmann/json.hpp>
+#include <algorithm>
 #include <sqlite3.h>
 
 static void Print_HotFiles(const int rid, const std::vector<HotFile>& hot_files)
@@ -801,6 +802,44 @@ static void get_repo_ci_trend_handler(Db& db, const httplib::Request& req, httpl
     res.set_content(out, "application/json");
 }
 
+static void get_repo_intro_handler(Db& db,const httplib::Request &req,httplib::Response &res)
+{
+    const int rid = std::stoi(req.matches[1]);
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql ="SELECT intro_text, intro_updated_at FROM repos WHERE id=?1;";
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        res.status = 500;
+        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        return;
+    }
+
+    sqlite3_bind_int(stmt, 1, rid);
+
+    int rc = sqlite3_step(stmt);
+    if (rc != SQLITE_ROW)
+    {
+        sqlite3_finalize(stmt);
+        res.status = 404;
+        res.set_content(R"({"error":"repo not found"})", "application/json");
+        return;
+    }
+
+    const unsigned char* intro = sqlite3_column_text(stmt, 0);
+    const unsigned char* updated = sqlite3_column_text(stmt, 1);
+
+    nlohmann::json out;
+    out["ok"] = true;
+    out["repo_id"] = rid;
+    out["intro_text"] = intro ? (const char*)intro : "";
+    out["intro_updated_at"] = updated ? (const char*)updated : "";
+    sqlite3_finalize(stmt);
+
+    res.set_content(out.dump(), "application/json; charset=utf-8");
+}
 // 对外提供一个注册函数，只注册 GET 路由
 void register_get_routes(httplib::Server& app, Db& db)
 {
@@ -894,5 +933,11 @@ void register_get_routes(httplib::Server& app, Db& db)
             [&db](const httplib::Request& req, httplib::Response& res)
             {
                 get_repo_ci_trend_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/intro)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_intro_handler(db, req, res);
             });
 }

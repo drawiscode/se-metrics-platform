@@ -67,6 +67,42 @@ export async function apiPost(path, body = undefined, options = {}) {
   return text ? JSON.parse(text) : {}
 }
 
+//patch函数 一般对资源进行部分更新，put一般为整体替换
+export async function apiPatch(path, body = undefined, options = {}) {
+  const headers = { ...(options.headers || {}) }
+
+  let fetchBody = undefined
+  if (body !== undefined) {
+    if (!headers['Content-Type'] && !headers['content-type']) {
+      headers['Content-Type'] = 'application/json'
+    }
+    if (
+      typeof body === 'string' ||
+      body instanceof FormData ||
+      body instanceof Blob ||
+      body instanceof ArrayBuffer
+    ) {
+      fetchBody = body
+    } else {
+      fetchBody = JSON.stringify(body)
+    }
+  }
+
+  const res = await fetch(path, {
+    method: 'PATCH',
+    headers,
+    body: fetchBody,
+    ...options,
+  })
+
+  const text = await readTextSafe(res)
+  if (!res.ok) {
+    console.error(`API PATCH ${path} failed with status ${res.status}:`, text)
+    throw new ApiError(res.status, `PATCH ${path} failed`, text)
+  }
+  return text ? JSON.parse(text) : {}
+}
+
 
 export async function apiDelete(path, options = {}) {
   const res = await fetch(path, { method: 'DELETE', ...(options || {}) })
@@ -77,3 +113,5 @@ export async function apiDelete(path, options = {}) {
   }
   return text ? JSON.parse(text) : {}
 }
+
+
