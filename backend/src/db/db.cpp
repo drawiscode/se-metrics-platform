@@ -344,4 +344,13 @@ void Db::init_schema()
         exec("ALTER TABLE repos ADD COLUMN intro_updated_at TEXT;");
     } catch (const std::exception& e) {
     }
+
+    // 2.4 向量检索: 为 knowledge_chunks 添加 embedding 列
+    if (!has_column(db_, "knowledge_chunks", "embedding")) {
+        try {
+            exec("ALTER TABLE knowledge_chunks ADD COLUMN embedding BLOB;");
+        } catch (const std::exception& e) {
+            std::cerr << "[db] ALTER TABLE add embedding column failed: " << e.what() << "\n";
+        }
+    }
 }
