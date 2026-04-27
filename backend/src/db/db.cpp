@@ -328,6 +328,21 @@ void Db::init_schema()
     CREATE INDEX IF NOT EXISTS idx_tasks_repo_status ON tasks(repo_id, status, priority);
     CREATE INDEX IF NOT EXISTS idx_tasks_repo_created ON tasks(repo_id, created_at DESC);
 
+    -- =============================================
+    -- 2.4(4) 自动周报
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id INTEGER NOT NULL,
+        week_start TEXT NOT NULL,
+        week_end TEXT NOT NULL,
+        report_text TEXT NOT NULL,
+        metrics_json TEXT,
+        model TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_weekly_reports_repo ON weekly_reports(repo_id, created_at DESC);
 
     )SQL";
 

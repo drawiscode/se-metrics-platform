@@ -36,6 +36,10 @@ add_executable(devinsight_backend
     src/risk/detector.cpp
     src/ai/knowledge_base.cpp
     src/ai/ai_assistant.cpp
+    src/expert/pagerank.cpp
+    src/api/routes_expert.cpp
+    src/report/weekly_report.cpp
+    src/api/routes_report.cpp
 )
 
 # 项目内 include 路径
