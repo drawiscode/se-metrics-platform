@@ -47,6 +47,25 @@ static void get_reports_handler(Db& db, const httplib::Request& req, httplib::Re
 }
 
 // ============================================================
+// GET /api/repos/{id}/reports/{report_id}
+// 获取指定周报（全文）
+// ============================================================
+static void get_report_detail_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    int rid = std::stoi(req.matches[1]);
+    int report_id = std::stoi(req.matches[2]);
+    auto report = get_weekly_report_by_id(db, rid, report_id);
+
+    if (report.id <= 0) {
+        res.status = 404;
+        res.set_content(R"({"error":"report not found"})", kJson);
+        return;
+    }
+
+    res.set_content(report_to_json(report), kJson);
+}
+
+// ============================================================
 // GET /api/repos/{id}/report/latest
 // 获取最新周报
 // ============================================================
@@ -82,6 +101,15 @@ void register_report_routes(httplib::Server& app, Db& db)
     app.Get(R"(/api/repos/(\d+)/report/latest)",
             [&db](const httplib::Request& req, httplib::Response& res) {
                 try { get_latest_report_handler(db, req, res); }
+                catch (const std::exception& e) {
+                    res.status = 500;
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJson);
+                }
+            });
+
+    app.Get(R"(/api/repos/(\d+)/reports/(\d+))",
+            [&db](const httplib::Request& req, httplib::Response& res) {
+                try { get_report_detail_handler(db, req, res); }
                 catch (const std::exception& e) {
                     res.status = 500;
                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJson);

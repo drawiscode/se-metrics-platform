@@ -473,6 +473,34 @@ WeeklyReport get_latest_report(Db& db, int repo_id)
 }
 
 // ============================================================
+// 公共接口: 获取指定 id 周报（全文）
+// ============================================================
+WeeklyReport get_weekly_report_by_id(Db& db, int repo_id, int report_id)
+{
+    WeeklyReport r;
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT id, repo_id, week_start, week_end, report_text, metrics_json, model, created_at "
+        "FROM weekly_reports WHERE repo_id=?1 AND id=?2 LIMIT 1;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return r;
+    sqlite3_bind_int(stmt, 1, repo_id);
+    sqlite3_bind_int(stmt, 2, report_id);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        r.id = sqlite3_column_int(stmt, 0);
+        r.repo_id = sqlite3_column_int(stmt, 1);
+        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? (const char*)v2 : "";
+        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? (const char*)v3 : "";
+        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? (const char*)v4 : "";
+        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? (const char*)v5 : "";
+        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? (const char*)v6 : "";
+        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? (const char*)v7 : "";
+    }
+    sqlite3_finalize(stmt);
+    return r;
+}
+
+// ============================================================
 // 公共接口: 查询周报历史
 // ============================================================
 std::vector<WeeklyReport> list_weekly_reports(Db& db, int repo_id, int limit)

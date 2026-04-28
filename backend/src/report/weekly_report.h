@@ -28,6 +28,9 @@ WeeklyReport get_latest_report(Db& db, int repo_id);
 // 查询周报历史
 std::vector<WeeklyReport> list_weekly_reports(Db& db, int repo_id, int limit = 10);
 
+// 获取指定 id 的周报（全文）
+WeeklyReport get_weekly_report_by_id(Db& db, int repo_id, int report_id);
+
 // JSON 序列化
 std::string report_to_json(const WeeklyReport& r);
 std::string reports_to_json(const std::vector<WeeklyReport>& reports);

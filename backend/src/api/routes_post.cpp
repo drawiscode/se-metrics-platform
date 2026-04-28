@@ -1093,12 +1093,13 @@ static bool db_update_repo_intro(Db &db, int repo_id, const std::string& intro)
 
 static std::string build_repo_intro_prompt(const std::string& full_name)
 {
-    // 纯文本、100-200字、不要Markdown
+    // NOTE: keep this prompt ASCII-only to avoid Windows source/console encoding issues.
+    // The model is still required to output Chinese.
     std::string p;
-    p += "请为 GitHub 仓库生成一段【中文纯文本介绍】，100-200字。\n";
-    p += "目标：说明该仓库是做什么的、主要用途/适用场景。\n";
-    p += "约束：不要Markdown，不要列表符号，不要带代码块；不要杜撰具体数字或功能细节，证据不足请用“可能/推测/通常”措辞。\n";
-    p += "仓库全名：";
+    p += "Generate a Chinese plain-text introduction (100-200 Chinese characters) for the GitHub repository below.\n";
+    p += "Goal: explain what the repository does and its main use cases.\n";
+    p += "Constraints: plain text only; no Markdown; no bullet points; no code blocks; do not invent numbers or features; if uncertain, use cautious wording.\n";
+    p += "Repository full name: ";
     p += full_name;
     return p;
 }
@@ -1116,7 +1117,7 @@ static void generate_and_store_repo_intro(Db& db, int repo_id, const std::string
             std::string intro = ai.answer;
 
             intro = util::trim(intro);
-            std::cerr<<"the intro generated success!"<<std::endl;
+            //std::cerr<<"the intro generated success!"<<std::endl;
 
             if(!intro.empty())
             {

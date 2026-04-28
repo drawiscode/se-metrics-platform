@@ -103,6 +103,8 @@
           <td class="ops">
             <RouterLink class="btn-link" :to="`/ai?repo_id=${r.id}`">AI</RouterLink>
             <RouterLink class="btn-link" :to="`/repos/${r.id}/tasks`">任务清单</RouterLink>
+            <RouterLink class="btn-link" :to="`/repos/${r.id}/reports`">周报</RouterLink>
+            <RouterLink class="btn-link" :to="`/repos/${r.id}/experts`">专家</RouterLink>
           </td>
 
           <td class="ops">
