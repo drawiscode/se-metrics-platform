@@ -751,6 +751,6 @@ std::string ai_answer_to_json(const AiAnswer& a)
         });
     }
 
-    // 统一输出 ASCII 转义，避免在某些终端/客户端因编码探测失败而出现乱码。
-    return j.dump(-1, ' ', true, nlohmann::json::error_handler_t::replace);
+    // 输出 UTF-8 原文，由 Content-Type charset=utf-8 保证编码正确
+    return j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }

@@ -153,7 +153,7 @@ static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Res
     if (full_name.empty())
     {
         res.status = 400;
-        res.set_content(R"({"error":"missing full_name"})", "application/json");
+        res.set_content(R"({"error":"missing full_name"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -161,14 +161,14 @@ static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Res
     if (!db_insert_repo(db, full_name, rid_ll))
     {
         res.status = 409;
-        res.set_content(R"({"error":"repo exists or insert failed"})", "application/json");
+        res.set_content(R"({"error":"repo exists or insert failed"})", "application/json; charset=utf-8");
         return;
     }
 
     res.set_content(
         std::string("{\"ok\":true,\"repo_id\":") + std::to_string((int)rid_ll) +
         ",\"full_name\":\"" + util::json_escape(full_name) + "\"}",
-        "application/json");
+        "application/json; charset=utf-8");
 }
 
 static bool db_commit_files_exist_for_sha(Db& db, int repo_id, const std::string& sha)
@@ -289,7 +289,7 @@ static bool sync_repo_ci_workflow_runs(Db& db,
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
 
@@ -463,7 +463,7 @@ static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name,
             db_finish_sync_run(db, run_id, "error", err);
         }
         res.status = (http_status >= 400 && http_status < 600) ? 502 : 502;
-        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
         return false;
     }
     const long long snapshot_id = db_insert_snapshot(db, rid, full_name, data);
@@ -472,7 +472,7 @@ static bool insert_snapshot_to_db(Db& db, int rid, const std::string& full_name,
         err = "db insert snapshot failed";
         if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
         res.status = 500;
-        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
         return false;
     }
     return true;
@@ -724,7 +724,7 @@ static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, cons
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
         
@@ -781,7 +781,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
                 err = !gh.error.empty() ? gh.error : ("github http " + std::to_string(gh.status));
                 if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
                 res.status = 502;
-                res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+                res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
                 return false;
             }
 
@@ -792,7 +792,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
                 err = "parse search results failed";
                 if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
                 res.status = 502;
-                res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+                res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
                 return false;
             }
 
@@ -812,7 +812,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
                 {
                     if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
                     res.status = 502;
-                    res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
                     return false;
                 }
 
@@ -845,7 +845,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
 
@@ -893,7 +893,7 @@ static bool sync_repo_commits(Db& db, int rid, const std::string& full_name, con
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
 
@@ -939,7 +939,7 @@ static bool sync_repo_releases(Db& db, int rid, const std::string& full_name, co
         {
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
 
@@ -1012,7 +1012,7 @@ static bool sync_commit_files(Db& db, int repo_id, const std::string& full_name,
 
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
 
@@ -1025,7 +1025,7 @@ static bool sync_commit_files(Db& db, int repo_id, const std::string& full_name,
             std::cout<<"parse_commit_files_from_github wrongs!"<<std::endl;
             if (run_id > 0) db_finish_sync_run(db, run_id, "error", err);
             res.status = 502;
-            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json");
+            res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", "application/json; charset=utf-8");
             return false;
         }
 
@@ -1154,7 +1154,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     if (!db_get_repo_full_name(db, rid, full_name))
     {
         res.status = 404;
-        res.set_content(R"({"error":"repo not found"})", "application/json");
+        res.set_content(R"({"error":"repo not found"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -1203,7 +1203,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
         if (!db_get_sync_state(db, rid, issues_cursor, pulls_cursor, commits_cursor, releases_cursor))
         {
             res.status = 500;
-            res.set_content(R"({"error":"failed to read repo_sync_state"})", "application/json");
+            res.set_content(R"({"error":"failed to read repo_sync_state"})", "application/json; charset=utf-8");
             return;
         }
     }
@@ -1315,7 +1315,7 @@ static void post_repo_sync_commit_files_handler(Db& db, const httplib::Request& 
     if (!db_get_repo_full_name(db, rid, full_name))
     {
         res.status = 404;
-        res.set_content(R"({"error":"repo not found"})", "application/json");
+        res.set_content(R"({"error":"repo not found"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -1339,7 +1339,7 @@ static void post_repo_sync_commit_files_handler(Db& db, const httplib::Request& 
     std::string out = std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) +
                       ",\"limit_commits\":" + std::to_string(limit_commits) +
                       ",\"total_files_processed\":" + std::to_string(total_files) + "}";
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -1363,13 +1363,13 @@ void register_post_routes(httplib::Server& app, Db& db)
                      res.status = 500;
                      res.set_content(std::string("{\"error\":\"") +
                                          util::json_escape(e.what()) + "\"}",
-                                     "application/json");
+                                     "application/json; charset=utf-8");
                  }
                  catch (...)
                  {
                      res.status = 500;
                      res.set_content(R"({"error":"unknown server error"})",
-                                     "application/json");
+                                     "application/json; charset=utf-8");
                  }
              });
 
@@ -1385,13 +1385,13 @@ void register_post_routes(httplib::Server& app, Db& db)
                      res.status = 500;
                      res.set_content(std::string("{\"error\":\"") +
                                          util::json_escape(e.what()) + "\"}",
-                                     "application/json");
+                                     "application/json; charset=utf-8");
                  }
                  catch (...)
                  {
                      res.status = 500;
                      res.set_content(R"({"error":"unknown server error"})",
-                                     "application/json");
+                                     "application/json; charset=utf-8");
                  }
              });
 

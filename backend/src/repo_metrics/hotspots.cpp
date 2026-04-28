@@ -37,7 +37,7 @@ std::vector<HotFile> compute_hot_files(Db& db, httplib::Response& res, int repo_
     sqlite3* sdb = db.handle();
     if (!sdb) {
         res.status = 500;
-        res.set_content(R"({"error":"db handle is null"})", "application/json");
+        res.set_content(R"({"error":"db handle is null"})", "application/json; charset=utf-8");
         return out;
     }
 
@@ -60,7 +60,7 @@ std::vector<HotFile> compute_hot_files(Db& db, httplib::Response& res, int repo_
         const char* msg = sqlite3_errmsg(sdb);
         res.status = 500;
         std::string err = std::string("{\"error\":\"db prepare failed\",\"detail\":\"") + (msg ? msg : "unknown") + "\"}";
-        res.set_content(err, "application/json");
+        res.set_content(err, "application/json; charset=utf-8");
         return out;
     }
     sqlite3_bind_int(stmt, 1, repo_id);
@@ -94,7 +94,7 @@ std::vector<HotDir> compute_hot_dirs(Db& db, httplib::Response& res, int repo_id
     if (!sdb) 
     {
         res.status = 500;
-        res.set_content(R"({"error":"db handle is null"})", "application/json");
+        res.set_content(R"({"error":"db handle is null"})", "application/json; charset=utf-8");
         return out;
     }
 

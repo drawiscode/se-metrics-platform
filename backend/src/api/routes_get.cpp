@@ -44,7 +44,7 @@ static int get_int_param(const httplib::Request& req, const std::string& key, in
 
 static void health_handler(const httplib::Request&, httplib::Response& res)
 {
-    res.set_content(R"({"ok":true})", "application/json");
+    res.set_content(R"({"ok":true})", "application/json; charset=utf-8");
 }
 
 
@@ -56,7 +56,7 @@ static void get_repos_handler(Db& db, const httplib::Request&, httplib::Response
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -78,7 +78,7 @@ static void get_repos_handler(Db& db, const httplib::Request&, httplib::Response
     out += "]}";
 
     sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -92,7 +92,7 @@ static void get_repo_handler(Db& db, const httplib::Request& req, httplib::Respo
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
     sqlite3_bind_int(stmt, 1, rid);
@@ -102,7 +102,7 @@ static void get_repo_handler(Db& db, const httplib::Request& req, httplib::Respo
     {
         sqlite3_finalize(stmt);
         res.status = 404;
-        res.set_content(R"({"error":"repo not found"})", "application/json");
+        res.set_content(R"({"error":"repo not found"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -118,7 +118,7 @@ static void get_repo_handler(Db& db, const httplib::Request& req, httplib::Respo
         
     //应该放在这里结束，而不是前面
     sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -135,7 +135,7 @@ static void get_repo_snapshots_handler(Db& db, const httplib::Request& req, http
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
     sqlite3_bind_int(stmt, 1, rid);
@@ -167,7 +167,7 @@ static void get_repo_snapshots_handler(Db& db, const httplib::Request& req, http
     out += "]}";
     sqlite3_finalize(stmt);
 
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -199,7 +199,7 @@ static void get_repo_issues_handler(Db& db, const httplib::Request& req, httplib
     if (sqlite3_prepare_v2(sdb, sql_used, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -244,7 +244,7 @@ static void get_repo_issues_handler(Db& db, const httplib::Request& req, httplib
     out += "]}";
     sqlite3_finalize(stmt);
 
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -274,7 +274,7 @@ static void get_repo_pulls_handler(Db& db, const httplib::Request& req, httplib:
     if (sqlite3_prepare_v2(sdb, sql_used, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -316,7 +316,7 @@ static void get_repo_pulls_handler(Db& db, const httplib::Request& req, httplib:
     out += "]}";
     sqlite3_finalize(stmt);
 
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -335,7 +335,7 @@ static void get_repo_commits_handler(Db& db, const httplib::Request& req, httpli
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -364,7 +364,7 @@ static void get_repo_commits_handler(Db& db, const httplib::Request& req, httpli
 
     out += "]}";
     sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -383,7 +383,7 @@ static void get_repo_releases_handler(Db& db, const httplib::Request& req, httpl
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -416,7 +416,7 @@ static void get_repo_releases_handler(Db& db, const httplib::Request& req, httpl
 
     out += "]}";
     sqlite3_finalize(stmt);
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -425,7 +425,7 @@ static void get_repo_metrics_handler(Db& db, const httplib::Request& req, httpli
     int rid = std::stoi(req.matches[1]);
     RepoMetrics m = compute_repo_metrics(db, rid);
     std::string body = "{\"metrics\":" + repo_metrics_to_json(m)  + "}";
-    res.set_content(body, "application/json");
+    res.set_content(body, "application/json; charset=utf-8");
 }
 
 
@@ -435,7 +435,7 @@ static void get_repo_health_handler(Db& db, const httplib::Request& req, httplib
     RepoMetrics m = compute_repo_metrics(db, rid);
     HealthScore h = compute_health_from_metrics(m);
     std::string body = "{\"health\":" + repo_health_to_json(h) + "}";
-    res.set_content(body, "application/json");
+    res.set_content(body, "application/json; charset=utf-8");
 }
 
 
@@ -466,7 +466,7 @@ static void get_repo_hotfiles_handler(Db& db, const httplib::Request& req, httpl
             + "}";
     }
     out += "]}";
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -498,7 +498,7 @@ static void get_repo_hotdirs_handler(Db& db, const httplib::Request& req, httpli
             + "}";
     }
     out += "]}";
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 
@@ -522,7 +522,7 @@ static void get_repo_activity_handler(Db& db, const httplib::Request& req, httpl
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -547,7 +547,7 @@ static void get_repo_activity_handler(Db& db, const httplib::Request& req, httpl
     sqlite3_finalize(stmt);
     out += "]}";
 
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 static int get_repo_ci_consecutive_failures(Db& db, int repo_id, int max_check)
@@ -606,7 +606,7 @@ static void get_repo_ci_runs_handler(Db& db, const httplib::Request& req, httpli
     if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -656,7 +656,7 @@ static void get_repo_ci_runs_handler(Db& db, const httplib::Request& req, httpli
 
     sqlite3_finalize(stmt);
     out += "]}";
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 static void get_repo_ci_health_handler(Db& db, const httplib::Request& req, httplib::Response& res)
@@ -742,7 +742,7 @@ static void get_repo_ci_health_handler(Db& db, const httplib::Request& req, http
         + ",\"latest_run_at\":\"" + util::json_escape(latest_run_at) + "\""
         + "}";
 
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 static void get_repo_ci_trend_handler(Db& db, const httplib::Request& req, httplib::Response& res)
@@ -766,7 +766,7 @@ static void get_repo_ci_trend_handler(Db& db, const httplib::Request& req, httpl
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -799,7 +799,7 @@ static void get_repo_ci_trend_handler(Db& db, const httplib::Request& req, httpl
 
     sqlite3_finalize(stmt);
     out += "]}";
-    res.set_content(out, "application/json");
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 static void get_repo_intro_handler(Db& db,const httplib::Request &req,httplib::Response &res)
@@ -813,7 +813,7 @@ static void get_repo_intro_handler(Db& db,const httplib::Request &req,httplib::R
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
         res.status = 500;
-        res.set_content(R"({"error":"db prepare failed"})", "application/json");
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
         return;
     }
 
@@ -824,7 +824,7 @@ static void get_repo_intro_handler(Db& db,const httplib::Request &req,httplib::R
     {
         sqlite3_finalize(stmt);
         res.status = 404;
-        res.set_content(R"({"error":"repo not found"})", "application/json");
+        res.set_content(R"({"error":"repo not found"})", "application/json; charset=utf-8");
         return;
     }
 
