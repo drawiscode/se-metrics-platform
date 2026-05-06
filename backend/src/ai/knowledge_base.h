@@ -31,6 +31,21 @@ struct BuildIndexResult {
     int total() const { return issues_indexed + pulls_indexed + commits_indexed + releases_indexed; }
 };
 
+// 仅清理指定 source_type 的知识块
+void clear_repo_chunks_by_types(Db& db, int repo_id, const std::vector<std::string>& types);
+
+// 插入一条知识块（用于多源索引）
+bool insert_knowledge_chunk(Db& db, int repo_id,
+                            const std::string& source_type,
+                            const std::string& source_id,
+                            const std::string& title,
+                            const std::string& content,
+                            const std::string& author,
+                            const std::string& event_time);
+
+// 为指定仓库生成 embedding（仅对 embedding 为空的 chunk）
+int generate_embeddings_for_repo(Db& db, int repo_id);
+
 // 为指定仓库构建/重建知识索引（会先清除旧数据）
 BuildIndexResult build_knowledge_index(Db& db, int repo_id);
 

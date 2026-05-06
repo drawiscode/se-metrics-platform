@@ -22,7 +22,7 @@
 
     <div class="card">
       <div class="row row-between">
-        <h3>AI 生成</h3>
+
         <button :disabled="busy || genBusy" @click="generateFromAi">生成/更新任务清单</button>
       </div>
       <p v-if="genErr" class="err">{{ genErr }}</p>
@@ -116,7 +116,7 @@
 </template>
 
 <script>
-    import { apiGet, apiPost, ApiError } from '../api/client'
+    import { apiGet, apiPost, ApiError, apiPatch, apiDelete } from '../api/client'
 
     export default {
         name: 'TasksView',

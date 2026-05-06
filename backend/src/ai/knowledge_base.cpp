@@ -258,7 +258,7 @@ static void store_embedding(Db& db, int chunk_id, const std::vector<float>& embe
 // ============================================================
 // 向量检索: 批量为某仓库的知识块生成 embedding
 // ============================================================
-static int generate_embeddings_for_repo(Db& db, int repo_id)
+int generate_embeddings_for_repo(Db& db, int repo_id)
 {
     // 读取所有尚无 embedding 的知识块
     sqlite3* sdb = db.handle();
@@ -399,15 +399,26 @@ static std::vector<std::string> extract_keywords(const std::string& query)
 }
 
 // ============================================================
-// 辅助: 清除某仓库的旧知识块
+// 辅助: 清除某仓库的旧知识块（按类型）
 // ============================================================
-static void clear_repo_chunks(Db& db, int repo_id)
+void clear_repo_chunks_by_types(Db& db, int repo_id, const std::vector<std::string>& types)
 {
+    if (types.empty()) return;
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "DELETE FROM knowledge_chunks WHERE repo_id=?1;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+
+    std::string sql = "DELETE FROM knowledge_chunks WHERE repo_id=?1 AND source_type IN (";
+    for (size_t i = 0; i < types.size(); ++i) {
+        if (i) sql += ",";
+        sql += "?" + std::to_string(static_cast<int>(i + 2));
+    }
+    sql += ");";
+
+    if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int(stmt, 1, repo_id);
+        for (size_t i = 0; i < types.size(); ++i) {
+            sqlite3_bind_text(stmt, static_cast<int>(i + 2), types[i].c_str(), -1, SQLITE_TRANSIENT);
+        }
         sqlite3_step(stmt);
     }
     if (stmt) sqlite3_finalize(stmt);
@@ -439,6 +450,17 @@ static bool insert_chunk(Db& db, int repo_id,
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return rc == SQLITE_DONE;
+}
+
+bool insert_knowledge_chunk(Db& db, int repo_id,
+                            const std::string& source_type,
+                            const std::string& source_id,
+                            const std::string& title,
+                            const std::string& content,
+                            const std::string& author,
+                            const std::string& event_time)
+{
+    return insert_chunk(db, repo_id, source_type, source_id, title, content, author, event_time);
 }
 
 // ============================================================
@@ -669,8 +691,10 @@ BuildIndexResult build_knowledge_index(Db& db, int repo_id)
 {
     BuildIndexResult result;
 
-    // 先清除该仓库的旧知识块
-    clear_repo_chunks(db, repo_id);
+    // 先清除该仓库的旧知识块（仅限结构化来源）
+    clear_repo_chunks_by_types(db, repo_id, {
+        "issue", "pull_request", "commit", "release"
+    });
 
     result.issues_indexed   = index_issues(db, repo_id);
     result.pulls_indexed    = index_pulls(db, repo_id);

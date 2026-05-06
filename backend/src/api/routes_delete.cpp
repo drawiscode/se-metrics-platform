@@ -1,5 +1,34 @@
 ﻿#include "routes.h"
+#include "common/util.h"
+
 #include <sqlite3.h>
+#include <filesystem>
+#include <string>
+
+namespace fs = std::filesystem;
+
+static std::string get_clone_root()
+{
+    std::string root = util::get_env("REPO_CLONE_ROOT", "data/repo_cache");
+    return util::trim(root);
+}
+
+static bool remove_repo_clone_dir(int repo_id, std::string& err_out)
+{
+    if (repo_id <= 0) return true;
+
+    fs::path root = get_clone_root();
+    fs::path repo_dir = root / std::to_string(repo_id);
+    std::error_code ec;
+    if (!fs::exists(repo_dir, ec)) return true;
+
+    fs::remove_all(repo_dir, ec);
+    if (ec) {
+        err_out = ec.message();
+        return false;
+    }
+    return true;
+}
 
 static void delete_repo_handler(Db& db, const httplib::Request& req, httplib::Response& res)
 {
@@ -33,7 +62,15 @@ static void delete_repo_handler(Db& db, const httplib::Request& req, httplib::Re
         return;
     }
 
-    res.set_content(R"({"ok":true})", "application/json; charset=utf-8");
+    std::string cleanup_error;
+    bool cleaned = remove_repo_clone_dir(rid, cleanup_error);
+
+    std::string out = "{\"ok\":true";
+    if (!cleaned) {
+        out += ",\"cleanup_error\":\"" + util::json_escape(cleanup_error) + "\"";
+    }
+    out += "}";
+    res.set_content(out, "application/json; charset=utf-8");
 }
 
 // 删除 repo 下所有 issues
