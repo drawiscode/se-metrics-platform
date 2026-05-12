@@ -2,6 +2,7 @@
 #include "common/util.h"
 #include "repo_metrics/metrics.h"
 #include "repo_metrics/health.h"
+#include "quality/quality_score.h"
 #include "repo_metrics/github_client.h"
 #include "repo_metrics/hotspots.h"
 #include <nlohmann/json.hpp>
@@ -12,28 +13,28 @@ static void Print_HotFiles(const int rid, const std::vector<HotFile>& hot_files)
 {
     return;
     
-    std::cerr << "Hot files for repo_id=" << rid << ":\n";
+   /* std::cerr << "Hot files for repo_id=" << rid << ":\n";
     for (const auto& f : hot_files)
     {
         std::cerr << "  " << f.filename << " (commits=" << f.commits
                   << ", additions=" << f.additions
                   << ", deletions=" << f.deletions
                   << ", churn=" << f.churn() << ")\n";
-    }
+    }*/
 }
 
 static void Print_HotDirs(const int rid, const std::vector<HotDir>& hot_dirs)
 {
     return;
 
-    std::cerr << "Hot Dirs for repo_id=" << rid << ":\n";
+    /*std::cerr << "Hot Dirs for repo_id=" << rid << ":\n";
     for (const auto& f : hot_dirs)
     {
         std::cerr << "  " << f.dir << " (commits=" << f.commits
                   << ", additions=" << f.additions
                   << ", deletions=" << f.deletions
                   << ", churn=" << f.churn() << ")\n";
-    }
+    }*/
 }
 
 static int get_int_param(const httplib::Request& req, const std::string& key, int defv) {
@@ -41,6 +42,10 @@ static int get_int_param(const httplib::Request& req, const std::string& key, in
     try { return std::stoi(req.get_param_value(key)); } catch (...) { return defv; }
 }
 
+static std::string get_str_param(const httplib::Request& req, const std::string& key, const std::string& defv) {
+    if (!req.has_param(key)) return defv;
+    return req.get_param_value(key);
+}
 
 static void health_handler(const httplib::Request&, httplib::Response& res)
 {
@@ -435,6 +440,29 @@ static void get_repo_health_handler(Db& db, const httplib::Request& req, httplib
     RepoMetrics m = compute_repo_metrics(db, rid);
     HealthScore h = compute_health_from_metrics(m);
     std::string body = "{\"health\":" + repo_health_to_json(h) + "}";
+    res.set_content(body, "application/json; charset=utf-8");
+}
+
+static void get_repo_overall_score_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    int rid = std::stoi(req.matches[1]);
+    std::string tool = get_str_param(req, "tool", "cppcheck");
+
+    RepoMetrics m = compute_repo_metrics(db, rid);
+    HealthScore h = compute_health_from_metrics(m);
+    QualityScore q = compute_quality_score(db, rid, tool);
+
+    const double health_weight = 0.6;
+    const double quality_weight = 0.4;
+    double overall = h.score * health_weight + q.score * quality_weight;
+
+    std::string body = "{\"overall\":" + std::to_string(overall)
+        + ",\"weights\":{\"health\":" + std::to_string(health_weight)
+        + ",\"quality\":" + std::to_string(quality_weight) + "}"
+        + ",\"health\":" + repo_health_to_json(h)
+        + ",\"quality\":" + quality_score_to_json(q)
+        + ",\"tool\":\"" + util::json_escape(tool) + "\"}";
+
     res.set_content(body, "application/json; charset=utf-8");
 }
 
@@ -897,6 +925,12 @@ void register_get_routes(httplib::Server& app, Db& db)
             [&db](const httplib::Request& req, httplib::Response& res) 
             {
                 get_repo_health_handler(db, req, res);
+            });
+
+    app.Get(R"(/api/repos/(\d+)/score)",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_repo_overall_score_handler(db, req, res);
             });
 
     app.Get(R"(/api/repos/(\d+)/hotfiles)",

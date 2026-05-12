@@ -20,6 +20,7 @@ void register_tasks_routes(httplib::Server& app, Db& db);
 void register_expert_routes(httplib::Server& app, Db& db);  // 2.4(5) 隐形专家识别
 void register_report_routes(httplib::Server& app, Db& db);  // 2.4(4) 自动周报生成
 void register_code_routes(httplib::Server& app, Db& db);    // 2.5 代码索引
+void register_quality_routes(httplib::Server& app, Db& db); // 2.2 代码质量分析
 
 void register_routes(httplib::Server& app, Db& db)
 {
@@ -34,6 +35,7 @@ void register_routes(httplib::Server& app, Db& db)
     register_expert_routes(app, db); // 2.4(5) 隐形专家识别
     register_report_routes(app, db); // 2.4(4) 自动周报生成
     register_code_routes(app, db);   // 2.5 代码索引
+    register_quality_routes(app, db); // 2.2 代码质量分析
 }
 
 

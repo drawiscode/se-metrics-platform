@@ -41,7 +41,10 @@ add_executable(devinsight_backend
     src/report/weekly_report.cpp
     src/api/routes_report.cpp
     src/api/routes_code.cpp
+    src/api/routes_quality.cpp
     src/ai/code_index.cpp
+    src/quality/static_analysis.cpp
+    src/quality/quality_score.cpp
 )
 
 # 项目内 include 路径

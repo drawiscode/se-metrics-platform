@@ -108,7 +108,7 @@ static bool is_binary_file(const fs::path& p)
 
 static bool is_ignored_dir(const fs::path& p)
 {
-    static const std::unordered_set<std::string> kIgnored = {
+    static const std::unordered_set<std::string> kIgnored = {//常见的二进制文件夹和构建输出目录，这里可以添加新的忽律规则
         ".git", "node_modules", "dist", "build", "out",
         "vendor", "third_party", ".vscode"
     };
@@ -167,13 +167,13 @@ static std::string build_repo_tree_summary(const fs::path& root, int depth)
     std::set<std::string> entries;
     for (auto it = fs::recursive_directory_iterator(root); it != fs::recursive_directory_iterator(); ++it) {
         const auto& p = it->path();
-        if (is_ignored_dir(p)) {
+        if (is_ignored_dir(p)) {//如果是忽略的目录，跳过并且不进入子目录
             it.disable_recursion_pending();
             continue;
         }
 
         std::string rel = fs::relative(p, root).generic_string();
-        if (rel.empty()) continue;
+        if (rel.empty()) continue;//如果相对路径为空，说明是根目录，跳过
         int d = 1;
         for (char c : rel) if (c == '/') d++;
         if (d > depth) {
@@ -189,7 +189,7 @@ static std::string build_repo_tree_summary(const fs::path& root, int depth)
     }
 
     std::ostringstream oss;
-    for (const auto& e : entries) {
+    for (const auto& e : entries) {//将目录结构拼接成字符串，作为仓库树的摘要信息
         oss << e << "\n";
     }
     return oss.str();
@@ -203,7 +203,7 @@ static bool clone_or_pull_repo(const fs::path& repo_dir,
     std::string url = build_repo_url(full_name);
     std::string ref_arg = ref.empty() ? "main" : ref;
 
-    if (!fs::exists(repo_dir)) {
+    if (!fs::exists(repo_dir)) {//如果仓库不存在
         fs::create_directories(repo_dir.parent_path());
         std::string cmd = "git clone --depth 1 --branch " + ref_arg + " " + url + " " + quote_path(repo_dir.string());
         int rc = run_cmd(cmd);
@@ -214,18 +214,18 @@ static bool clone_or_pull_repo(const fs::path& repo_dir,
         return true;
     }
 
-    if (!fs::exists(repo_dir / ".git")) {
+    if (!fs::exists(repo_dir / ".git")) {//如果git目录不存在，说明不是合法的git仓库
         err = "repo_dir exists but is not a git repo";
         return false;
     }
 
     std::string cmd_fetch = "git -C " + quote_path(repo_dir.string()) + " fetch --depth 1 origin " + ref_arg;
-    if (run_cmd(cmd_fetch) != 0) {
+    if (run_cmd(cmd_fetch) != 0) {//如果拉取失败，可能是网络问题或者ref不存在等
         err = "git fetch failed";
         return false;
     }
     std::string cmd_checkout = "git -C " + quote_path(repo_dir.string()) + " checkout --force FETCH_HEAD";
-    if (run_cmd(cmd_checkout) != 0) {
+    if (run_cmd(cmd_checkout) != 0) {//如果切换失败，可能是ref不存在等
         err = "git checkout failed";
         return false;
     }
@@ -253,17 +253,17 @@ CodeIndexResult build_code_index(Db& db, int repo_id,
     fs::path repo_dir = fs::path(root) / std::to_string(repo_id);
 
     std::string err;
-    if (!clone_or_pull_repo(repo_dir, full_name, ref, err)) {
+    if (!clone_or_pull_repo(repo_dir, full_name, ref, err)) {//更新代码到本地
         result.skipped_reason["git_error"]++;
         return result;
     }
 
     result.repo_head_sha = get_head_sha(repo_dir);
 
-    clear_repo_chunks_by_types(db, repo_id, {"repo_tree", "code"});
+    clear_repo_chunks_by_types(db, repo_id, {"repo_tree", "code"});//先清理掉之前的索引数据
 
     std::string tree = build_repo_tree_summary(repo_dir, 5);//最大递归遍历5层目录
-    if (!tree.empty()) {
+    if (!tree.empty()) {//将仓库树的摘要信息作为一个特殊的知识块插入到知识库中，方便后续查询和分析
         std::string content = "REPO_TREE\n" + tree;
         insert_knowledge_chunk(db, repo_id, "repo_tree",
                                "tree@" + result.repo_head_sha,
@@ -274,7 +274,7 @@ CodeIndexResult build_code_index(Db& db, int repo_id,
     int processed_files = 0;
     long long total_kb = 0;
 
-    for (auto it = fs::recursive_directory_iterator(repo_dir); it != fs::recursive_directory_iterator(); ++it) {
+    for (auto it = fs::recursive_directory_iterator(repo_dir); it != fs::recursive_directory_iterator(); ++it) {//递归遍历仓库目录，收集代码文件并生成知识块
         const auto& p = it->path();
         if (is_ignored_dir(p)) {
             it.disable_recursion_pending();

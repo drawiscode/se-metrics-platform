@@ -49,7 +49,7 @@ static void post_code_index_handler(Db& db, const httplib::Request& req, httplib
 {
     int rid = std::stoi(req.matches[1]);
     std::string full_name;
-    if (!db_get_repo_full_name(db, rid, full_name)) {
+    if (!db_get_repo_full_name(db, rid, full_name)) {//找仓库是否存在
         res.status = 404;
         res.set_content(R"({"error":"repo not found"})", kJson);
         return;

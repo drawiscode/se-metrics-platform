@@ -303,6 +303,23 @@ void Db::init_schema()
     CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_status ON ci_workflow_runs(repo_id, status, conclusion);
     CREATE INDEX IF NOT EXISTS idx_ci_runs_repo_updated ON ci_workflow_runs(repo_id, updated_at DESC);
 
+    -- 2.2 Code quality analysis: static analysis issues
+    CREATE TABLE IF NOT EXISTS quality_issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_id INTEGER NOT NULL,
+        tool TEXT NOT NULL, -- cppcheck | clang-tidy
+        file_path TEXT NOT NULL,
+        line INTEGER NOT NULL DEFAULT 0,
+        column INTEGER NOT NULL DEFAULT 0,
+        rule_id TEXT NOT NULL DEFAULT '',
+        severity TEXT NOT NULL DEFAULT '',
+        message TEXT NOT NULL DEFAULT '',
+        first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_tool ON quality_issues(repo_id, tool);
+    CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_file ON quality_issues(repo_id, file_path);
+
 
     -- =============================================
     -- 4.21 新增 :Tasks: AI 生成的任务清单（闭环）

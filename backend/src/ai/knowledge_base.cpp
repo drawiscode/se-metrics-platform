@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstring>
 #include <unordered_map>
+#include <thread>
+#include <chrono>
 
 #include <httplib.h>
 
@@ -226,6 +228,59 @@ static std::vector<std::vector<float>> call_embedding_api_batch(
     return results;
 }
 
+static int env_to_int(const char* name, int def)
+{
+    std::string v = util::get_env(name, "");
+    if (v.empty()) return def;
+    try {
+        return std::stoi(util::trim(v));
+    } catch (...) {
+        return def;
+    }
+}
+
+static void sleep_ms(int ms)
+{
+    if (ms <= 0) return;
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
+static std::vector<std::vector<float>> call_embedding_api_batch_with_retry(
+    const std::vector<std::string>& texts,
+    std::string& error_out,
+    int max_attempts,
+    int backoff_base_ms,
+    int backoff_max_ms)
+{
+    error_out.clear();
+    if (texts.empty()) return {};
+    if (max_attempts < 1) max_attempts = 1;
+
+    std::string last_error;
+    for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        std::string error;
+        auto embeddings = call_embedding_api_batch(texts, error);
+        if (error.empty()) {
+            return embeddings;
+        }
+
+        last_error = error;
+        if (attempt < max_attempts) {
+            int exp = attempt - 1;
+            long long backoff = static_cast<long long>(backoff_base_ms);
+            backoff = backoff * (1LL << exp);
+            if (backoff > backoff_max_ms) backoff = backoff_max_ms;
+            std::cerr << "[embedding] 批量请求失败，准备重试 "
+                      << (attempt + 1) << "/" << max_attempts
+                      << "，等待 " << backoff << "ms: " << last_error << "\n";
+            sleep_ms(static_cast<int>(backoff));
+        }
+    }
+
+    error_out = last_error;
+    return {};
+}
+
 // 单条文本 embedding 的便捷接口
 std::vector<float> call_embedding_api(const std::string& text)
 {
@@ -286,6 +341,10 @@ int generate_embeddings_for_repo(Db& db, int repo_id)
     int total_generated = 0;
     const int batch_size = 6;  // DashScope text-embedding-v3 批量上限 10，留余量取 6
 
+    const int retry_times = env_to_int("EMBEDDING_RETRY_TIMES", 3);
+    const int backoff_base_ms = env_to_int("EMBEDDING_RETRY_BACKOFF_MS", 500);
+    const int backoff_max_ms = env_to_int("EMBEDDING_RETRY_BACKOFF_MAX_MS", 4000);
+
     for (size_t offset = 0; offset < pending.size(); offset += batch_size) {
         size_t end = std::min(offset + batch_size, pending.size());
         std::vector<std::string> texts;
@@ -297,10 +356,26 @@ int generate_embeddings_for_repo(Db& db, int repo_id)
         }
 
         std::string error;
-        auto embeddings = call_embedding_api_batch(texts, error);
+        auto embeddings = call_embedding_api_batch_with_retry(
+            texts, error, retry_times, backoff_base_ms, backoff_max_ms);
         if (!error.empty()) {
-            std::cerr << "[embedding] 批量生成失败 (offset=" << offset << "): " << error << "\n";
-            continue;  // 跳过这一批，继续下一批
+            std::cerr << "[embedding] 批量生成失败 (offset=" << offset << ")，已重试 "
+                      << retry_times << " 次: " << error << "\n";
+
+            // 批量多次失败（常见于网络/SSL 抖动），降级为逐条重试，尽可能减少漏生成。
+            for (size_t i = 0; i < texts.size(); ++i) {
+                std::string one_err;
+                auto one = call_embedding_api_batch_with_retry(
+                    {texts[i]}, one_err, retry_times, backoff_base_ms, backoff_max_ms);
+                if (one_err.empty() && !one.empty() && !one[0].empty()) {
+                    store_embedding(db, pending[offset + i].id, one[0]);
+                    total_generated++;
+                } else {
+                    std::cerr << "[embedding] 单条生成失败 chunk_id=" << pending[offset + i].id
+                              << ": " << (one_err.empty() ? "empty_embedding" : one_err) << "\n";
+                }
+            }
+            continue;
         }
 
         for (size_t i = 0; i < texts.size() && i < embeddings.size(); ++i) {
