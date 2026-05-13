@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"E:/Code/se-metrics-platform/build-vs/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

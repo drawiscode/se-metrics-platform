@@ -1,0 +1,10 @@
+^E:\CODE\SE-METRICS-PLATFORM\BUILD-VS\CMAKEFILES\F98FCB6BA897A2E9E857C008D261C628\GENERATE.STAMP.RULE
+setlocal
+E:\Software\Cmake\bin\cmake.exe -SE:/Code/se-metrics-platform/backend -BE:/Code/se-metrics-platform/build-vs --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/Code/se-metrics-platform/build-vs/devinsight_backend.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

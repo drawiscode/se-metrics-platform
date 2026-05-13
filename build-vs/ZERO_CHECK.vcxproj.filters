@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="E:\Code\se-metrics-platform\build-vs\CMakeFiles\f98fcb6ba897a2e9e857c008d261c628\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{465819D5-9E88-33FE-981A-D6196B910995}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+E:\Code\se-metrics-platform\backend\src\app\main.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\main.obj
+E:\Code\se-metrics-platform\backend\src\api\routes.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\routes.obj
+E:\Code\se-metrics-platform\backend\src\api\routes_delete.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\routes_delete.obj
+E:\Code\se-metrics-platform\backend\src\api\routes_get.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\routes_get.obj
+E:\Code\se-metrics-platform\backend\src\api\routes_post.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\routes_post.obj
+E:\Code\se-metrics-platform\backend\src\api\routes_put.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\routes_put.obj
+E:\Code\se-metrics-platform\backend\src\common\util.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\util.obj
+E:\Code\se-metrics-platform\backend\src\db\db.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\db.obj
+E:\Code\se-metrics-platform\backend\src\repo_metrics\github_client.cpp;E:\Code\se-metrics-platform\build-vs\devinsight_backend.dir\Debug\github_client.obj
