@@ -3,3 +3,5 @@ scripts/
 build/
 .vscode/
 vcpkg/
+build-codex/
+build-vs/
