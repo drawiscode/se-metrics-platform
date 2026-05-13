@@ -6,21 +6,35 @@
 ---
 ## 环境配置相关
 (1)backend目录创建config/config.env文件，里面填写如下字段：
+
 DEVINSIGHT_DB=实际data/devinsight.db文件所在绝对路径
+
 PORT=8080
+
 GITHUB_TOKEN=从github上面获得的token
+
 CMakeLists.txt中第一行vcpkg路径改为你实际vcpkg所在路径
 
 (2)第三方库依赖下载：通过vcpkg下载
+
 sqlite3
+
 nlohmann-json
+
 cpp-httplib
+
 openssl
+
 这四个依赖库到本地，同时使用具体vcpkg的路径更改CMakeLists.txt的路径设置。字段如下：
+
 target_include_directories(devinsight_backend PRIVATE
+
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+
     C:/vcpkg/installed/x64-windows/include 
+
 )
+
 sqlite3 不支持 mingw，建议使用 MSVC 进行编译。
 
 ---
