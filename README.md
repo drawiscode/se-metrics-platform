@@ -5,29 +5,24 @@
 
 ---
 ## 环境配置相关
-(1)在backend目录下面创建一个config/config.env文件，在里面填写如下字段：
-DEVINSIGHT_DB=你实际的data/devinsight.db文件所在绝对路径
+(1)backend目录创建config/config.env文件，里面填写如下字段：
+DEVINSIGHT_DB=实际data/devinsight.db文件所在绝对路径
 PORT=8080
-GITHUB_TOKEN=你从github上面获得的token
-在CMakeLists.txt中第一行vcpkg路径改为你的实际vcpkg所在路径
+GITHUB_TOKEN=从github上面获得的token
+CMakeLists.txt中第一行vcpkg路径改为你实际vcpkg所在路径
 
-(2)第三方库依赖下载:你需要通过vcpkg下载
+(2)第三方库依赖下载：通过vcpkg下载
 sqlite3
 nlohmann-json
 cpp-httplib
 openssl
-四个依赖库到本机，同时根据你具体vcpkg的下载路径来更改CMakeLists.txt的路径设置，这里建议你直接把vcpkg下载到C盘，即C：,否则你可能需要更改CMakeLists的以下内容：
+这四个依赖库到本地，同时使用具体vcpkg的路径更改CMakeLists.txt的路径设置。字段如下：
 target_include_directories(devinsight_backend PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     C:/vcpkg/installed/x64-windows/include 
 )
-同时考虑到直接下载得到的sqlite3貌似不支持mingw,建议你使用MSVC来进行编译。
+sqlite3 不支持 mingw，建议使用 MSVC 进行编译。
 
-(3)你的所有被编译的文件应该以UTF-8 with BOM的形式保存，否则你可能通不过MSVC的编译，会报很奇怪的错误，导致你链接不到别的头文件和第三方库
-
-(4)你选择的工具包应该是amd64而不是x86(如果你完全按照我的环境配置)
-
-(5) .vscode的settings.json里面选择你实际的CMake编译器
 ---
 
 ## 1. 项目概述
