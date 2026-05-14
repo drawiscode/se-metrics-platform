@@ -46,7 +46,8 @@ QualityScore compute_quality_score(Db& db, int repo_id, const std::string& tool)
         const char* sql =
             "SELECT COUNT(*), COUNT(DISTINCT file_path) "
             "FROM quality_issues WHERE repo_id=?1 "
-            "AND (?2='' OR tool=?2);";
+            "AND (?2='' OR tool=?2) "
+            "AND (status IS NULL OR status='' OR status='active');";
         if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int(stmt, 1, repo_id);
             sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
@@ -65,6 +66,7 @@ QualityScore compute_quality_score(Db& db, int repo_id, const std::string& tool)
             "SELECT severity, COUNT(*) "
             "FROM quality_issues WHERE repo_id=?1 "
             "AND (?2='' OR tool=?2) "
+            "AND (status IS NULL OR status='' OR status='active') "
             "GROUP BY severity;";
         if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int(stmt, 1, repo_id);
