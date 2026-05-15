@@ -77,7 +77,7 @@ static bool db_get_repo_full_name(Db& db, int repo_id, std::string& full_name_ou
     int rc = sqlite3_step(stmt);
     if (rc != SQLITE_ROW) { sqlite3_finalize(stmt); return false; }
     const unsigned char* txt = sqlite3_column_text(stmt, 0);
-    full_name_out = txt ? (const char*)txt : "";
+    full_name_out = txt ? reinterpret_cast<const char*>(txt) : "";
     sqlite3_finalize(stmt);
     return !full_name_out.empty();
 }
@@ -166,7 +166,7 @@ static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Res
     }
 
     res.set_content(
-        std::string("{\"ok\":true,\"repo_id\":") + std::to_string((int)rid_ll) +
+        std::string("{\"ok\":true,\"repo_id\":") + std::to_string(static_cast<int>(rid_ll)) +
         ",\"full_name\":\"" + util::json_escape(full_name) + "\"}",
         "application/json; charset=utf-8");
 }
@@ -300,7 +300,7 @@ static bool sync_repo_ci_workflow_runs(Db& db,
             upserted_out += db_upsert_ci_workflow_run(db, repo_id, run);
         }
 
-        if ((int)runs.size() < per_page) break;
+        if (static_cast<int>(runs.size()) < per_page) break;
     }
 
     std::cout<<"ci_workflow ends"<<std::endl;
@@ -332,7 +332,7 @@ static double db_ci_failure_rate_24h(Db& db, int repo_id, int& completed_out)
     sqlite3_finalize(stmt);
 
     if (completed_out <= 0) return 0.0;
-    return (double)failed / (double)completed_out;
+    return static_cast<double>(failed) / static_cast<double>(completed_out);
 }
 
 static int db_ci_consecutive_failures(Db& db, int repo_id, int max_check)
@@ -354,7 +354,7 @@ static int db_ci_consecutive_failures(Db& db, int repo_id, int max_check)
     while (sqlite3_step(stmt) == SQLITE_ROW)
     {
         const unsigned char* c = sqlite3_column_text(stmt, 0);
-        std::string conclusion = c ? (const char*)c : "";
+        std::string conclusion = c ? reinterpret_cast<const char*>(c) : "";
         if (conclusion == "success") break;
         consecutive++;
     }
@@ -739,7 +739,7 @@ static bool sync_repo_issues(Db& db, int rid, const std::string& full_name, cons
             new_cursor_out = max_iso8601(new_cursor_out, it.updated_at);
         }
     
-        if ((int)items.size() < per_page)  // 如果本页少于 per_page，说明已经是最后一页
+        if (static_cast<int>(items.size()) < per_page)  // 如果本页少于 per_page，说明已经是最后一页
         {
             break;
         }
@@ -821,7 +821,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
             }
 
             print_debug_pages(page, "pulls");
-            if ((int)items.size() < per_page) break;
+            if (static_cast<int>(items.size()) < per_page) break;
             page++;
         }
         return true;
@@ -857,7 +857,7 @@ static bool sync_repo_pulls(Db& db, int rid, const std::string& full_name, const
             new_cursor_out = max_iso8601(new_cursor_out, it.updated_at);
         }
 
-        if ((int)items.size() < per_page) break;
+        if (static_cast<int>(items.size()) < per_page) break;
         page++;
     }
     return true;
@@ -905,7 +905,7 @@ static bool sync_repo_commits(Db& db, int rid, const std::string& full_name, con
             new_since_cursor_out = max_iso8601(new_since_cursor_out, it.committed_at);
         }
 
-        if ((int)items.size() < per_page) break;
+        if (static_cast<int>(items.size()) < per_page) break;
         page++;
     }
     return true;
@@ -964,7 +964,7 @@ static bool sync_repo_releases(Db& db, int rid, const std::string& full_name, co
             if (!any_newer) break;
         }
 
-        if ((int)items.size() < per_page) break;
+        if (static_cast<int>(items.size()) < per_page) break;
         page++;
     }
 
@@ -1055,7 +1055,7 @@ static bool db_repo_intro_exists(Db &db, int repo_id)
     if(sqlite3_step(stmt) == SQLITE_ROW)
     {
         const unsigned char* t = sqlite3_column_text(stmt,0);
-        std::string v = t ? (const char*)t: "";
+        std::string v = t ? reinterpret_cast<const char*>(t): "";
         exists = !v.empty();
     }
     sqlite3_finalize(stmt);

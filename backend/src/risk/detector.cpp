@@ -213,12 +213,6 @@ std::vector<TimeValue> query_daily_values(Db& db, int repo_id, const std::string
     return rows;
 }
 
-void maybe_add_candidate(std::vector<CandidateAlert>& out, const CandidateAlert& c)
-{
-    if (c.current_value > c.threshold_value) {
-        out.push_back(c);
-    }
-}
 
 // 规则 1：单日代码 churn 突增
 std::vector<CandidateAlert> detect_churn_spike(Db& db, int repo_id, int lookback_days)
@@ -370,20 +364,20 @@ RiskAlertEvent read_alert_from_stmt(sqlite3_stmt* stmt)
     RiskAlertEvent e;
     e.id = sqlite3_column_int(stmt, 0);
     e.repo_id = sqlite3_column_int(stmt, 1);
-    auto c2 = sqlite3_column_text(stmt, 2); e.alert_type = c2 ? (const char*)c2 : "";
-    auto c3 = sqlite3_column_text(stmt, 3); e.metric_name = c3 ? (const char*)c3 : "";
-    auto c4 = sqlite3_column_text(stmt, 4); e.window_start = c4 ? (const char*)c4 : "";
-    auto c5 = sqlite3_column_text(stmt, 5); e.window_end = c5 ? (const char*)c5 : "";
+    auto c2 = sqlite3_column_text(stmt, 2); e.alert_type = c2 ? reinterpret_cast<const char*>(c2) : "";
+    auto c3 = sqlite3_column_text(stmt, 3); e.metric_name = c3 ? reinterpret_cast<const char*>(c3) : "";
+    auto c4 = sqlite3_column_text(stmt, 4); e.window_start = c4 ? reinterpret_cast<const char*>(c4) : "";
+    auto c5 = sqlite3_column_text(stmt, 5); e.window_end = c5 ? reinterpret_cast<const char*>(c5) : "";
     e.current_value = sqlite3_column_double(stmt, 6);
     e.baseline_value = sqlite3_column_double(stmt, 7);
     e.threshold_value = sqlite3_column_double(stmt, 8);
-    auto c9 = sqlite3_column_text(stmt, 9); e.severity = c9 ? (const char*)c9 : "";
-    auto c10 = sqlite3_column_text(stmt, 10); e.scope_type = c10 ? (const char*)c10 : "";
-    auto c11 = sqlite3_column_text(stmt, 11); e.scope_id = c11 ? (const char*)c11 : "";
-    auto c12 = sqlite3_column_text(stmt, 12); e.suggested_action = c12 ? (const char*)c12 : "";
-    auto c13 = sqlite3_column_text(stmt, 13); e.status = c13 ? (const char*)c13 : "";
-    auto c14 = sqlite3_column_text(stmt, 14); e.evidence_json = c14 ? (const char*)c14 : "";
-    auto c15 = sqlite3_column_text(stmt, 15); e.created_at = c15 ? (const char*)c15 : "";
+    auto c9 = sqlite3_column_text(stmt, 9); e.severity = c9 ? reinterpret_cast<const char*>(c9) : "";
+    auto c10 = sqlite3_column_text(stmt, 10); e.scope_type = c10 ? reinterpret_cast<const char*>(c10) : "";
+    auto c11 = sqlite3_column_text(stmt, 11); e.scope_id = c11 ? reinterpret_cast<const char*>(c11) : "";
+    auto c12 = sqlite3_column_text(stmt, 12); e.suggested_action = c12 ? reinterpret_cast<const char*>(c12) : "";
+    auto c13 = sqlite3_column_text(stmt, 13); e.status = c13 ? reinterpret_cast<const char*>(c13) : "";
+    auto c14 = sqlite3_column_text(stmt, 14); e.evidence_json = c14 ? reinterpret_cast<const char*>(c14) : "";
+    auto c15 = sqlite3_column_text(stmt, 15); e.created_at = c15 ? reinterpret_cast<const char*>(c15) : "";
     return e;
 }
 
@@ -490,8 +484,10 @@ std::vector<RiskAlertEvent> list_risk_alerts(Db& db,
         sql += " AND severity=?" + std::to_string(bind_idx++);
     }
 
-    sql += " ORDER BY id DESC LIMIT ?" + std::to_string(bind_idx++) +
-           " OFFSET ?" + std::to_string(bind_idx++) + ";";
+    const int limit_param = bind_idx++;
+    const int offset_param = bind_idx++;
+    sql += " ORDER BY id DESC LIMIT ?" + std::to_string(limit_param) +
+           " OFFSET ?" + std::to_string(offset_param) + ";";
 
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
@@ -616,7 +612,7 @@ std::string risk_alerts_summary_to_json(Db& db, int repo_id, int days)
             auto t = sqlite3_column_text(stmt, 0);
             int c = sqlite3_column_int(stmt, 1);
             top_types.push_back({
-                {"alert_type", t ? (const char*)t : ""},
+                {"alert_type", t ? reinterpret_cast<const char*>(t) : ""},
                 {"count", c}
             });
         }

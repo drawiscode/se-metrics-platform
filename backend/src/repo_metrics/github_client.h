@@ -90,9 +90,6 @@ struct WorkflowRunData {
     std::string raw_json;
 };
 
-void Judge_GitHub_Token(const std::string& token);
-
-
 bool fetch_repo_snapshot_from_github(const GitHubResponse& gh,
                                             RepoSnapshotData& out,
                                             std::string& error_out,

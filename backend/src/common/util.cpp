@@ -12,8 +12,19 @@ namespace util {
 
 std::string get_env(const char* name, const std::string& def)
 {
-    const char* v = std::getenv(name);
+#ifdef _WIN32
+    char* value = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&value, &len, name) == 0 && value) {
+        std::string out(value);
+        free(value);
+        return !out.empty() ? out : def;
+    }
+    return def;
+#else
+    const char* v = getenv(name);
     return (v && *v) ? std::string(v) : def;
+#endif
 }
 
 std::string json_escape(const std::string& s)
@@ -36,16 +47,6 @@ std::string json_escape(const std::string& s)
     
 }
 
-void exec_sql(sqlite3* db, const std::string& sql)
-{
-    char* err = nullptr;
-    if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK)
-    {
-        std::string msg = err ? err : "unknown sqlite error";
-        if (err) sqlite3_free(err);
-        throw std::runtime_error(msg);
-    }
-}
 
 
 static inline void trim_inplace(std::string& s)

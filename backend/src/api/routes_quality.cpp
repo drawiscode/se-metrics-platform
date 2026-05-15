@@ -30,7 +30,7 @@ static bool db_get_repo_full_name(Db& db, int repo_id, std::string& full_name_ou
     int rc = sqlite3_step(stmt);
     if (rc != SQLITE_ROW) { sqlite3_finalize(stmt); return false; }
     const unsigned char* txt = sqlite3_column_text(stmt, 0);
-    full_name_out = txt ? (const char*)txt : "";
+    full_name_out = txt ? reinterpret_cast<const char*>(txt) : "";
     sqlite3_finalize(stmt);
     return !full_name_out.empty();
 }
@@ -38,7 +38,7 @@ static bool db_get_repo_full_name(Db& db, int repo_id, std::string& full_name_ou
 static std::string col_text(sqlite3_stmt* stmt, int idx)
 {
     const unsigned char* txt = sqlite3_column_text(stmt, idx);
-    return txt ? (const char*)txt : "";
+    return txt ? reinterpret_cast<const char*>(txt) : "";
 }
 
 static nlohmann::json parse_json_body(const httplib::Request& req)

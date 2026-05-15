@@ -37,7 +37,7 @@ static EmbUrlParts parse_emb_url(const std::string& url)
     auto slash = rest.find('/');
     if (slash != std::string::npos) {
         p.path_prefix = rest.substr(slash);
-        rest = rest.substr(0, slash);
+        rest.resize(slash);
     }
     auto colon = rest.find(':');
     if (colon != std::string::npos) {
@@ -331,7 +331,7 @@ int generate_embeddings_for_repo(Db& db, int repo_id)
         ci.id = sqlite3_column_int(stmt, 0);
         auto t = sqlite3_column_text(stmt, 1);
         auto c = sqlite3_column_text(stmt, 2);
-        ci.text = std::string(t ? (const char*)t : "") + " " + std::string(c ? (const char*)c : "");
+        ci.text = std::string(t ? reinterpret_cast<const char*>(t) : "") + " " + std::string(c ? reinterpret_cast<const char*>(c) : "");
         pending.push_back(std::move(ci));
     }
     sqlite3_finalize(stmt);
@@ -351,7 +351,7 @@ int generate_embeddings_for_repo(Db& db, int repo_id)
         for (size_t i = offset; i < end; ++i) {
             // 截取前 2000 字符，避免超过 API 限制
             std::string& t = pending[i].text;
-            if (t.size() > 2000) t = t.substr(0, 2000);
+            if (t.size() > 2000) t.resize(2000);
             texts.push_back(t);
         }
 
@@ -554,13 +554,13 @@ static int index_issues(Db& db, int repo_id)
     int count = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         int    number   = sqlite3_column_int(stmt, 0);
-        auto   state    = (const char*)sqlite3_column_text(stmt, 1);
-        auto   title    = (const char*)sqlite3_column_text(stmt, 2);
-        auto   created  = (const char*)sqlite3_column_text(stmt, 3);
-        auto   closed   = (const char*)sqlite3_column_text(stmt, 4);
+        auto   state    = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        auto   title    = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        auto   created  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        auto   closed   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
         int    comments = sqlite3_column_int(stmt, 5);
-        auto   author   = (const char*)sqlite3_column_text(stmt, 6);
-        auto   raw      = (const char*)sqlite3_column_text(stmt, 7);
+        auto   author   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        auto   raw      = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
 
         // 标题
         std::string s_title = "Issue #" + std::to_string(number) + ": " + (title ? title : "");
@@ -571,7 +571,10 @@ static int index_issues(Db& db, int repo_id)
             try {
                 auto j = nlohmann::json::parse(raw);
                 body = j.value("body", "");
-                if (body.size() > 500) body = body.substr(0, 500) + "...";
+                if (body.size() > 500) {
+                    body.resize(500);
+                    body += "...";
+                }
             } catch (...) {}
         }
 
@@ -610,13 +613,13 @@ static int index_pulls(Db& db, int repo_id)
     int count = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         int  number  = sqlite3_column_int(stmt, 0);
-        auto state   = (const char*)sqlite3_column_text(stmt, 1);
-        auto title   = (const char*)sqlite3_column_text(stmt, 2);
-        auto created = (const char*)sqlite3_column_text(stmt, 3);
-        auto closed  = (const char*)sqlite3_column_text(stmt, 4);
-        auto merged  = (const char*)sqlite3_column_text(stmt, 5);
-        auto author  = (const char*)sqlite3_column_text(stmt, 6);
-        auto raw     = (const char*)sqlite3_column_text(stmt, 7);
+        auto state   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        auto title   = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        auto created = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        auto closed  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        auto merged  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        auto author  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        auto raw     = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
 
         std::string s_title = "PR #" + std::to_string(number) + ": " + (title ? title : "");
 
@@ -625,7 +628,10 @@ static int index_pulls(Db& db, int repo_id)
             try {
                 auto j = nlohmann::json::parse(raw);
                 body = j.value("body", "");
-                if (body.size() > 500) body = body.substr(0, 500) + "...";
+                if (body.size() > 500) {
+                    body.resize(500);
+                    body += "...";
+                }
             } catch (...) {}
         }
 
@@ -668,11 +674,11 @@ static int index_commits(Db& db, int repo_id)
 
     int count = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto sha          = (const char*)sqlite3_column_text(stmt, 0);
-        auto author       = (const char*)sqlite3_column_text(stmt, 1);
-        auto committed_at = (const char*)sqlite3_column_text(stmt, 2);
-        auto raw          = (const char*)sqlite3_column_text(stmt, 3);
-        auto files        = (const char*)sqlite3_column_text(stmt, 4);
+        auto sha          = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        auto author       = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        auto committed_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        auto raw          = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        auto files        = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
 
         if (!sha) continue;
         std::string sha_short = std::string(sha).substr(0, 7);
@@ -684,7 +690,10 @@ static int index_commits(Db& db, int repo_id)
                 auto j = nlohmann::json::parse(raw);
                 if (j.contains("commit") && j["commit"].is_object())
                     message = j["commit"].value("message", "");
-                if (message.size() > 300) message = message.substr(0, 300) + "...";
+                if (message.size() > 300) {
+                    message.resize(300);
+                    message += "...";
+                }
             } catch (...) {}
         }
 
@@ -698,7 +707,10 @@ static int index_commits(Db& db, int repo_id)
             s_content += "\nMessage: " + message;
         if (files && files[0]) {
             std::string fs = files;
-            if (fs.size() > 500) fs = fs.substr(0, 500) + "...";
+            if (fs.size() > 500) {
+                fs.resize(500);
+                fs += "...";
+            }
             s_content += "\nFiles: " + fs;
         }
 
@@ -725,12 +737,12 @@ static int index_releases(Db& db, int repo_id)
 
     int count = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto tag        = (const char*)sqlite3_column_text(stmt, 0);
-        auto name       = (const char*)sqlite3_column_text(stmt, 1);
+        auto tag        = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        auto name       = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         int  draft      = sqlite3_column_int(stmt, 2);
         int  prerelease = sqlite3_column_int(stmt, 3);
-        auto published  = (const char*)sqlite3_column_text(stmt, 4);
-        auto raw        = (const char*)sqlite3_column_text(stmt, 5);
+        auto published  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        auto raw        = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
 
         std::string s_title = "Release " + std::string(tag ? tag : "");
         if (name && name[0]) s_title += ": " + std::string(name);
@@ -740,7 +752,10 @@ static int index_releases(Db& db, int repo_id)
             try {
                 auto j = nlohmann::json::parse(raw);
                 body = j.value("body", "");
-                if (body.size() > 500) body = body.substr(0, 500) + "...";
+                if (body.size() > 500) {
+                    body.resize(500);
+                    body += "...";
+                }
             } catch (...) {}
         }
 
@@ -818,12 +833,12 @@ static std::vector<KnowledgeChunk> fallback_recent_chunks(Db& db, int repo_id, i
             KnowledgeChunk c;
             c.id         = sqlite3_column_int(stmt, 0);
             c.repo_id    = sqlite3_column_int(stmt, 1);
-            auto v2 = sqlite3_column_text(stmt, 2); c.source_type = v2 ? (const char*)v2 : "";
-            auto v3 = sqlite3_column_text(stmt, 3); c.source_id   = v3 ? (const char*)v3 : "";
-            auto v4 = sqlite3_column_text(stmt, 4); c.title       = v4 ? (const char*)v4 : "";
-            auto v5 = sqlite3_column_text(stmt, 5); c.content     = v5 ? (const char*)v5 : "";
-            auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? (const char*)v6 : "";
-            auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? (const char*)v7 : "";
+            auto v2 = sqlite3_column_text(stmt, 2); c.source_type = v2 ? reinterpret_cast<const char*>(v2) : "";
+            auto v3 = sqlite3_column_text(stmt, 3); c.source_id   = v3 ? reinterpret_cast<const char*>(v3) : "";
+            auto v4 = sqlite3_column_text(stmt, 4); c.title       = v4 ? reinterpret_cast<const char*>(v4) : "";
+            auto v5 = sqlite3_column_text(stmt, 5); c.content     = v5 ? reinterpret_cast<const char*>(v5) : "";
+            auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? reinterpret_cast<const char*>(v6) : "";
+            auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? reinterpret_cast<const char*>(v7) : "";
             c.score = 0.1;
             results.push_back(std::move(c));
         }
@@ -884,12 +899,12 @@ static std::vector<KnowledgeChunk> keyword_search(Db& db, int repo_id,
         KnowledgeChunk c;
         c.id         = sqlite3_column_int(stmt, 0);
         c.repo_id    = sqlite3_column_int(stmt, 1);
-        auto v2 = sqlite3_column_text(stmt, 2); c.source_type = v2 ? (const char*)v2 : "";
-        auto v3 = sqlite3_column_text(stmt, 3); c.source_id   = v3 ? (const char*)v3 : "";
-        auto v4 = sqlite3_column_text(stmt, 4); c.title       = v4 ? (const char*)v4 : "";
-        auto v5 = sqlite3_column_text(stmt, 5); c.content     = v5 ? (const char*)v5 : "";
-        auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? (const char*)v6 : "";
-        auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? (const char*)v7 : "";
+        auto v2 = sqlite3_column_text(stmt, 2); c.source_type = v2 ? reinterpret_cast<const char*>(v2) : "";
+        auto v3 = sqlite3_column_text(stmt, 3); c.source_id   = v3 ? reinterpret_cast<const char*>(v3) : "";
+        auto v4 = sqlite3_column_text(stmt, 4); c.title       = v4 ? reinterpret_cast<const char*>(v4) : "";
+        auto v5 = sqlite3_column_text(stmt, 5); c.content     = v5 ? reinterpret_cast<const char*>(v5) : "";
+        auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? reinterpret_cast<const char*>(v6) : "";
+        auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? reinterpret_cast<const char*>(v7) : "";
 
         double score = 0.0;
         std::string tl = c.title, cl = c.content, al = c.author, sl = c.source_type, il = c.source_id;
@@ -959,12 +974,12 @@ static std::vector<KnowledgeChunk> vector_search(Db& db, int repo_id,
         KnowledgeChunk c;
         c.id         = sqlite3_column_int(stmt, 0);
         c.repo_id    = sqlite3_column_int(stmt, 1);
-        auto v2 = sqlite3_column_text(stmt, 2); c.source_type = v2 ? (const char*)v2 : "";
-        auto v3 = sqlite3_column_text(stmt, 3); c.source_id   = v3 ? (const char*)v3 : "";
-        auto v4 = sqlite3_column_text(stmt, 4); c.title       = v4 ? (const char*)v4 : "";
-        auto v5 = sqlite3_column_text(stmt, 5); c.content     = v5 ? (const char*)v5 : "";
-        auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? (const char*)v6 : "";
-        auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? (const char*)v7 : "";
+        auto v2 = sqlite3_column_text(stmt, 2); c.source_type = v2 ? reinterpret_cast<const char*>(v2) : "";
+        auto v3 = sqlite3_column_text(stmt, 3); c.source_id   = v3 ? reinterpret_cast<const char*>(v3) : "";
+        auto v4 = sqlite3_column_text(stmt, 4); c.title       = v4 ? reinterpret_cast<const char*>(v4) : "";
+        auto v5 = sqlite3_column_text(stmt, 5); c.content     = v5 ? reinterpret_cast<const char*>(v5) : "";
+        auto v6 = sqlite3_column_text(stmt, 6); c.author      = v6 ? reinterpret_cast<const char*>(v6) : "";
+        auto v7 = sqlite3_column_text(stmt, 7); c.event_time  = v7 ? reinterpret_cast<const char*>(v7) : "";
 
         const void* blob = sqlite3_column_blob(stmt, 8);
         int blob_bytes = sqlite3_column_bytes(stmt, 8);

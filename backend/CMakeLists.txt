@@ -95,7 +95,7 @@ endif()
 
 # ---- 编译选项 ----
 if(MSVC)
-    target_compile_options(devinsight_backend PRIVATE /W4)
+    target_compile_options(devinsight_backend PRIVATE /W4 /utf-8)
     target_compile_definitions(devinsight_backend PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(devinsight_backend PRIVATE -Wall -Wextra -Wpedantic)

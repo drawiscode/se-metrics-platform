@@ -30,13 +30,6 @@ struct QualityAnalysisResult {
     std::string error;
 };
 
-QualityAnalysisResult run_static_analysis(Db& db,
-                                          int repo_id,
-                                          const std::string& full_name,
-                                          const std::string& ref,
-                                          const std::string& tool,
-                                          const std::string& mode,
-                                          int max_files);
 
 QualityAnalysisResult run_static_analysis_task(Db& db,
                                                int repo_id,

@@ -71,11 +71,11 @@ void build_collaboration_graph(Db& db, int repo_id,
             while (sqlite3_step(stmt) == SQLITE_ROW) {
                 auto login_raw = sqlite3_column_text(stmt, 0);
                 if (!login_raw) continue;
-                std::string login = (const char*)login_raw;
+                std::string login = reinterpret_cast<const char*>(login_raw);
                 DevInfo& di = dev_info[login];
                 di.commit_count = sqlite3_column_int(stmt, 1);
                 auto la = sqlite3_column_text(stmt, 2);
-                di.last_active = la ? (const char*)la : "";
+                di.last_active = la ? reinterpret_cast<const char*>(la) : "";
             }
             sqlite3_finalize(stmt);
         }
@@ -99,8 +99,8 @@ void build_collaboration_graph(Db& db, int repo_id,
                 auto file_raw = sqlite3_column_text(stmt, 1);
                 if (!login_raw || !file_raw) continue;
 
-                std::string login = (const char*)login_raw;
-                std::string filepath = (const char*)file_raw;
+                std::string login = reinterpret_cast<const char*>(login_raw);
+                std::string filepath = reinterpret_cast<const char*>(file_raw);
                 std::string mod = extract_module(filepath);
 
                 dev_info[login].files_touched++;
@@ -136,9 +136,9 @@ void build_collaboration_graph(Db& db, int repo_id,
                 auto json_raw = sqlite3_column_text(stmt, 1);
                 if (!author_raw || !json_raw) continue;
 
-                std::string pr_author = (const char*)author_raw;
+                std::string pr_author = reinterpret_cast<const char*>(author_raw);
                 try {
-                    auto j = nlohmann::json::parse((const char*)json_raw);
+                    auto j = nlohmann::json::parse(reinterpret_cast<const char*>(json_raw));
                     // 解析 requested_reviewers
                     if (j.contains("requested_reviewers") && j["requested_reviewers"].is_array()) {
                         for (const auto& reviewer : j["requested_reviewers"]) {
@@ -306,7 +306,7 @@ std::vector<ModuleExpert> compute_module_experts(Db& db, int repo_id,
         ModuleExpert me;
         me.module_path = dir_prefix;
         auto login = sqlite3_column_text(stmt, 0);
-        me.login = login ? (const char*)login : "";
+        me.login = login ? reinterpret_cast<const char*>(login) : "";
         me.commit_count = sqlite3_column_int(stmt, 1);
         me.lines_changed = sqlite3_column_int(stmt, 2);
         results.push_back(std::move(me));

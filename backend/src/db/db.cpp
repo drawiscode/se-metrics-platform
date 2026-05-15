@@ -15,7 +15,7 @@ static bool has_column(sqlite3* db, const char* table, const char* col)
     while (sqlite3_step(stmt) == SQLITE_ROW)
     {
         const unsigned char* name = sqlite3_column_text(stmt, 1); // column name
-        if (name && std::string((const char*)name) == col) { ok = true; break; }
+        if (name && std::string(reinterpret_cast<const char*>(name)) == col) { ok = true; break; }
     }
     sqlite3_finalize(stmt);
     return ok;

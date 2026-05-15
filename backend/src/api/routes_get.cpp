@@ -76,7 +76,7 @@ static void get_repos_handler(Db& db, const httplib::Request&, httplib::Response
         int enabled = sqlite3_column_int(stmt, 2);
 
         out += "{\"id\":" + std::to_string(id)
-            + ",\"full_name\":\"" + util::json_escape(fn ? (const char*)fn : "") + "\""
+            + ",\"full_name\":\"" + util::json_escape(fn ? reinterpret_cast<const char*>(fn) : "") + "\""
             + ",\"enabled\":" + std::to_string(enabled)
             + "}";
     }
@@ -117,7 +117,7 @@ static void get_repo_handler(Db& db, const httplib::Request& req, httplib::Respo
     
 
     std::string out = std::string("{\"id\":") + std::to_string(id)
-        + ",\"full_name\":\"" + util::json_escape(fn ? (const char*)fn : "") + "\""
+        + ",\"full_name\":\"" + util::json_escape(fn ? reinterpret_cast<const char*>(fn) : "") + "\""
         + ",\"enabled\":" + std::to_string(enabled)
         + "}";
         
@@ -161,12 +161,12 @@ static void get_repo_snapshots_handler(Db& db, const httplib::Request& req, http
         const unsigned char* pushed = sqlite3_column_text(stmt, 6);
 
         out += "{\"id\":" + std::to_string(id)
-            + ",\"ts\":\"" + util::json_escape(ts ? (const char*)ts : "") + "\""
+            + ",\"ts\":\"" + util::json_escape(ts ? reinterpret_cast<const char*>(ts) : "") + "\""
             + ",\"stars\":" + std::to_string(stars)
             + ",\"forks\":" + std::to_string(forks)
             + ",\"open_issues\":" + std::to_string(open_issues)
             + ",\"watchers\":" + std::to_string(watchers)
-            + ",\"pushed_at\":\"" + util::json_escape(pushed ? (const char*)pushed : "") + "\""
+            + ",\"pushed_at\":\"" + util::json_escape(pushed ? reinterpret_cast<const char*>(pushed) : "") + "\""
             + "}";
     }
     out += "]}";
@@ -235,13 +235,13 @@ static void get_repo_issues_handler(Db& db, const httplib::Request& req, httplib
 
         out += "{\n";
         out += "  \"number\": " + std::to_string(number) + ",\n";
-        out += "  \"state\": \"" + util::json_escape(st ? (const char*)st : "") + "\",\n";
-        out += "  \"title\": \"" + util::json_escape(title ? (const char*)title : "") + "\",\n";
-        out += "  \"created_at\": \"" + util::json_escape(created_at ? (const char*)created_at : "") + "\",\n";
-        out += "  \"updated_at\": \"" + util::json_escape(updated_at ? (const char*)updated_at : "") + "\",\n";
-        out += "  \"closed_at\": \"" + util::json_escape(closed_at ? (const char*)closed_at : "") + "\",\n";
+        out += "  \"state\": \"" + util::json_escape(st ? reinterpret_cast<const char*>(st) : "") + "\",\n";
+        out += "  \"title\": \"" + util::json_escape(title ? reinterpret_cast<const char*>(title) : "") + "\",\n";
+        out += "  \"created_at\": \"" + util::json_escape(created_at ? reinterpret_cast<const char*>(created_at) : "") + "\",\n";
+        out += "  \"updated_at\": \"" + util::json_escape(updated_at ? reinterpret_cast<const char*>(updated_at) : "") + "\",\n";
+        out += "  \"closed_at\": \"" + util::json_escape(closed_at ? reinterpret_cast<const char*>(closed_at) : "") + "\",\n";
         out += "  \"comments\": " + std::to_string(comments) + ",\n";
-        out += "  \"author_login\": \"" + util::json_escape(author ? (const char*)author : "") + "\",\n";
+        out += "  \"author_login\": \"" + util::json_escape(author ? reinterpret_cast<const char*>(author) : "") + "\",\n";
         out += "  \"is_pull_request\": " + std::to_string(is_pr) + "\n";
         out += "}\n";
     }
@@ -308,13 +308,13 @@ static void get_repo_pulls_handler(Db& db, const httplib::Request& req, httplib:
 
         out += "{";
         out += "\"number\":" + std::to_string(number) + ",";
-        out += "\"state\":\"" + util::json_escape(st ? (const char*)st : "") + "\",";
-        out += "\"title\":\"" + util::json_escape(title ? (const char*)title : "") + "\",";
-        out += "\"created_at\":\"" + util::json_escape(created_at ? (const char*)created_at : "") + "\",";
-        out += "\"updated_at\":\"" + util::json_escape(updated_at ? (const char*)updated_at : "") + "\",";
-        out += "\"closed_at\":\"" + util::json_escape(closed_at ? (const char*)closed_at : "") + "\",";
-        out += "\"merged_at\":\"" + util::json_escape(merged_at ? (const char*)merged_at : "") + "\",";
-        out += "\"author_login\":\"" + util::json_escape(author ? (const char*)author : "") + "\"";
+        out += "\"state\":\"" + util::json_escape(st ? reinterpret_cast<const char*>(st) : "") + "\",";
+        out += "\"title\":\"" + util::json_escape(title ? reinterpret_cast<const char*>(title) : "") + "\",";
+        out += "\"created_at\":\"" + util::json_escape(created_at ? reinterpret_cast<const char*>(created_at) : "") + "\",";
+        out += "\"updated_at\":\"" + util::json_escape(updated_at ? reinterpret_cast<const char*>(updated_at) : "") + "\",";
+        out += "\"closed_at\":\"" + util::json_escape(closed_at ? reinterpret_cast<const char*>(closed_at) : "") + "\",";
+        out += "\"merged_at\":\"" + util::json_escape(merged_at ? reinterpret_cast<const char*>(merged_at) : "") + "\",";
+        out += "\"author_login\":\"" + util::json_escape(author ? reinterpret_cast<const char*>(author) : "") + "\"";
         out += "}";
     }
 
@@ -361,9 +361,9 @@ static void get_repo_commits_handler(Db& db, const httplib::Request& req, httpli
         const unsigned char* committed_at = sqlite3_column_text(stmt, 2);
 
         out += "{";
-        out += "\"sha\":\"" + util::json_escape(sha ? (const char*)sha : "") + "\",";
-        out += "\"author_login\":\"" + util::json_escape(author ? (const char*)author : "") + "\",";
-        out += "\"committed_at\":\"" + util::json_escape(committed_at ? (const char*)committed_at : "") + "\"";
+        out += "\"sha\":\"" + util::json_escape(sha ? reinterpret_cast<const char*>(sha) : "") + "\",";
+        out += "\"author_login\":\"" + util::json_escape(author ? reinterpret_cast<const char*>(author) : "") + "\",";
+        out += "\"committed_at\":\"" + util::json_escape(committed_at ? reinterpret_cast<const char*>(committed_at) : "") + "\"";
         out += "}";
     }
 
@@ -411,11 +411,11 @@ static void get_repo_releases_handler(Db& db, const httplib::Request& req, httpl
         const unsigned char* published_at = sqlite3_column_text(stmt, 4);
 
         out += "{";
-        out += "\"tag_name\":\"" + util::json_escape(tag ? (const char*)tag : "") + "\",";
-        out += "\"name\":\"" + util::json_escape(name ? (const char*)name : "") + "\",";
+        out += "\"tag_name\":\"" + util::json_escape(tag ? reinterpret_cast<const char*>(tag) : "") + "\",";
+        out += "\"name\":\"" + util::json_escape(name ? reinterpret_cast<const char*>(name) : "") + "\",";
         out += "\"draft\":" + std::to_string(draft) + ",";
         out += "\"prerelease\":" + std::to_string(prerelease) + ",";
-        out += "\"published_at\":\"" + util::json_escape(published_at ? (const char*)published_at : "") + "\"";
+        out += "\"published_at\":\"" + util::json_escape(published_at ? reinterpret_cast<const char*>(published_at) : "") + "\"";
         out += "}";
     }
 
@@ -597,7 +597,7 @@ static int get_repo_ci_consecutive_failures(Db& db, int repo_id, int max_check)
     while (sqlite3_step(stmt) == SQLITE_ROW)
     {
         const unsigned char* c = sqlite3_column_text(stmt, 0);
-        const std::string conclusion = c ? (const char*)c : "";
+        const std::string conclusion = c ? reinterpret_cast<const char*>(c) : "";
         if (conclusion == "success") break;
         consecutive++;
     }
@@ -668,16 +668,16 @@ static void get_repo_ci_runs_handler(Db& db, const httplib::Request& req, httpli
 
         out += std::string("{\"run_id\":") + std::to_string(run_id)
             + ",\"workflow_id\":" + std::to_string(workflow_id)
-            + ",\"name\":\"" + util::json_escape(name ? (const char*)name : "") + "\""
-            + ",\"head_branch\":\"" + util::json_escape(head_branch ? (const char*)head_branch : "") + "\""
-            + ",\"event\":\"" + util::json_escape(event ? (const char*)event : "") + "\""
-            + ",\"status\":\"" + util::json_escape(st ? (const char*)st : "") + "\""
-            + ",\"conclusion\":\"" + util::json_escape(con ? (const char*)con : "") + "\""
-            + ",\"created_at\":\"" + util::json_escape(created_at ? (const char*)created_at : "") + "\""
-            + ",\"updated_at\":\"" + util::json_escape(updated_at ? (const char*)updated_at : "") + "\""
-            + ",\"run_started_at\":\"" + util::json_escape(run_started_at ? (const char*)run_started_at : "") + "\""
-            + ",\"html_url\":\"" + util::json_escape(html_url ? (const char*)html_url : "") + "\""
-            + ",\"actor_login\":\"" + util::json_escape(actor_login ? (const char*)actor_login : "") + "\""
+            + ",\"name\":\"" + util::json_escape(name ? reinterpret_cast<const char*>(name) : "") + "\""
+            + ",\"head_branch\":\"" + util::json_escape(head_branch ? reinterpret_cast<const char*>(head_branch) : "") + "\""
+            + ",\"event\":\"" + util::json_escape(event ? reinterpret_cast<const char*>(event) : "") + "\""
+            + ",\"status\":\"" + util::json_escape(st ? reinterpret_cast<const char*>(st) : "") + "\""
+            + ",\"conclusion\":\"" + util::json_escape(con ? reinterpret_cast<const char*>(con) : "") + "\""
+            + ",\"created_at\":\"" + util::json_escape(created_at ? reinterpret_cast<const char*>(created_at) : "") + "\""
+            + ",\"updated_at\":\"" + util::json_escape(updated_at ? reinterpret_cast<const char*>(updated_at) : "") + "\""
+            + ",\"run_started_at\":\"" + util::json_escape(run_started_at ? reinterpret_cast<const char*>(run_started_at) : "") + "\""
+            + ",\"html_url\":\"" + util::json_escape(html_url ? reinterpret_cast<const char*>(html_url) : "") + "\""
+            + ",\"actor_login\":\"" + util::json_escape(actor_login ? reinterpret_cast<const char*>(actor_login) : "") + "\""
             + ",\"run_attempt\":" + std::to_string(run_attempt)
             + "}";
     }
@@ -741,17 +741,17 @@ static void get_repo_ci_health_handler(Db& db, const httplib::Request& req, http
         if (sqlite3_step(stmt) == SQLITE_ROW)
         {
             const unsigned char* latest = sqlite3_column_text(stmt, 0);
-            latest_run_at = latest ? (const char*)latest : "";
+            latest_run_at = latest ? reinterpret_cast<const char*>(latest) : "";
         }
     }
     if (stmt) sqlite3_finalize(stmt);
 
     const int consecutive_failures = get_repo_ci_consecutive_failures(db, rid, 20);
-    const double failure_rate_24h = completed_24h > 0 ? ((double)failed_24h / (double)completed_24h) : 0.0;
+    const double failure_rate_24h = completed_24h > 0 ? (static_cast<double>(failed_24h) / static_cast<double>(completed_24h)) : 0.0;
 
     double score = 100.0;
     score -= std::min(70.0, failure_rate_24h * 100.0 * 0.70);
-    score -= std::min(30.0, (double)consecutive_failures * 10.0);
+    score -= std::min(30.0, static_cast<double>(consecutive_failures) * 10.0);
     if (completed_24h == 0) score -= 10.0;
     if (score < 0.0) score = 0.0;
 
@@ -815,9 +815,9 @@ static void get_repo_ci_trend_handler(Db& db, const httplib::Request& req, httpl
         const int completed = sqlite3_column_int(stmt, 1);
         const int failed = sqlite3_column_int(stmt, 2);
         const double avg_duration = sqlite3_column_double(stmt, 3);
-        const double failure_rate = completed > 0 ? ((double)failed / (double)completed) : 0.0;
+        const double failure_rate = completed > 0 ? (static_cast<double>(failed) / static_cast<double>(completed)) : 0.0;
 
-        out += std::string("{\"date\":\"") + util::json_escape(d ? (const char*)d : "") +
+        out += std::string("{\"date\":\"") + util::json_escape(d ? reinterpret_cast<const char*>(d) : "") +
             "\",\"completed\":" + std::to_string(completed) +
             ",\"failed\":" + std::to_string(failed) +
             ",\"failure_rate\":" + std::to_string(failure_rate) +
@@ -862,8 +862,8 @@ static void get_repo_intro_handler(Db& db,const httplib::Request &req,httplib::R
     nlohmann::json out;
     out["ok"] = true;
     out["repo_id"] = rid;
-    out["intro_text"] = intro ? (const char*)intro : "";
-    out["intro_updated_at"] = updated ? (const char*)updated : "";
+    out["intro_text"] = intro ? reinterpret_cast<const char*>(intro) : "";
+    out["intro_updated_at"] = updated ? reinterpret_cast<const char*>(updated) : "";
     sqlite3_finalize(stmt);
 
     res.set_content(out.dump(), "application/json; charset=utf-8");

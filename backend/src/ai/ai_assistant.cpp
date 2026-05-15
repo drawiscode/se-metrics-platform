@@ -58,7 +58,7 @@ static std::vector<RepoSummary> list_repo_summaries(Db& db)
         RepoSummary r;
         r.id = sqlite3_column_int(stmt, 0);
         auto v1 = sqlite3_column_text(stmt, 1);
-        r.full_name = v1 ? (const char*)v1 : "";
+        r.full_name = v1 ? reinterpret_cast<const char*>(v1) : "";
         r.chunk_count = sqlite3_column_int(stmt, 2);
         items.push_back(std::move(r));
     }
@@ -207,9 +207,9 @@ static std::vector<ContributorSummary> list_top_commit_contributors(Db& db, int 
         ContributorSummary c;
         auto v0 = sqlite3_column_text(stmt, 0);
         auto v2 = sqlite3_column_text(stmt, 2);
-        c.author_login = v0 ? (const char*)v0 : "";
+        c.author_login = v0 ? reinterpret_cast<const char*>(v0) : "";
         c.commit_count = sqlite3_column_int(stmt, 1);
-        c.last_commit_at = v2 ? (const char*)v2 : "";
+        c.last_commit_at = v2 ? reinterpret_cast<const char*>(v2) : "";
         items.push_back(std::move(c));
     }
     sqlite3_finalize(stmt);
@@ -353,7 +353,7 @@ static UrlParts parse_url(const std::string& url)
     auto slash = rest.find('/');
     if (slash != std::string::npos) {
         p.path_prefix = rest.substr(slash);
-        rest = rest.substr(0, slash);
+        rest.resize(slash);
     }
 
     // 解析端口
@@ -385,7 +385,7 @@ static std::string get_repo_full_name(Db& db, int repo_id)
         sqlite3_bind_int(stmt, 1, repo_id);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             auto txt = sqlite3_column_text(stmt, 0);
-            if (txt) full_name = (const char*)txt;
+            if (txt) full_name = reinterpret_cast<const char*>(txt);
         }
     }
     if (stmt) sqlite3_finalize(stmt);

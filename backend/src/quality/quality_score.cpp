@@ -154,8 +154,8 @@ QualityScore compute_quality_score(Db& db, int repo_id, const std::string& tool)
                 const unsigned char* tool_txt = sqlite3_column_text(stmt, 0);
                 const unsigned char* sev = sqlite3_column_text(stmt, 1);
                 int count = sqlite3_column_int(stmt, 2);
-                std::string tool_key = tool_txt ? (const char*)tool_txt : "";
-                std::string key = sev ? (const char*)sev : "";
+                std::string tool_key = tool_txt ? reinterpret_cast<const char*>(tool_txt) : "";
+                std::string key = sev ? reinterpret_cast<const char*>(sev) : "";
                 q.severity_counts[key] += count;
                 q.penalty += severity_weight(key) * tool_weight(tool_key) * count;
             }
@@ -217,8 +217,8 @@ QualityScore compute_quality_score_for_run(Db& db, int run_id)
                 const unsigned char* tool_txt = sqlite3_column_text(stmt, 0);
                 const unsigned char* sev = sqlite3_column_text(stmt, 1);
                 int count = sqlite3_column_int(stmt, 2);
-                std::string tool_key = tool_txt ? (const char*)tool_txt : "";
-                std::string key = sev ? (const char*)sev : "";
+                std::string tool_key = tool_txt ? reinterpret_cast<const char*>(tool_txt) : "";
+                std::string key = sev ? reinterpret_cast<const char*>(sev) : "";
                 q.severity_counts[key] += count;
                 q.penalty += severity_weight(key) * tool_weight(tool_key) * count;
             }

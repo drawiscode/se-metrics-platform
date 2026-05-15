@@ -762,7 +762,7 @@ static bool find_current_issue(Db& db,
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         issue_id = sqlite3_column_int(stmt, 0);
         const unsigned char* s = sqlite3_column_text(stmt, 1);
-        status = s ? (const char*)s : "";
+        status = s ? reinterpret_cast<const char*>(s) : "";
         found = true;
     }
     sqlite3_finalize(stmt);
@@ -883,7 +883,13 @@ static std::string make_timestamp()
 {
     std::time_t t = std::time(nullptr);
     char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", std::localtime(&t));
+    std::tm tm_value{};
+#ifdef _WIN32
+    localtime_s(&tm_value, &t);
+#else
+    localtime_r(&t, &tm_value);
+#endif
+    std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tm_value);
     return std::string(buf);
 }
 
@@ -917,6 +923,9 @@ static void normalize_and_filter_issues(std::vector<QualityIssue>& issues)
         issue.severity = util::trim(issue.severity);
         issue.message = util::trim(issue.message);
         if (ignored.count(to_lower(issue.rule_id))) continue;
+        if (to_lower(issue.severity) == "note") continue;
+        if (issue.file_path.rfind("../", 0) == 0 || issue.file_path.find(":/") != std::string::npos) continue;
+        if (is_quality_ignored_path(issue.file_path)) continue;
         filtered.push_back(std::move(issue));
     }
     issues.swap(filtered);
@@ -1400,16 +1409,6 @@ static fs::path prepare_fallback_compile_commands(const fs::path& repo_dir,
 
 } // namespace
 
-QualityAnalysisResult run_static_analysis(Db& db,
-                                          int repo_id,
-                                          const std::string& full_name,
-                                          const std::string& ref,
-                                          const std::string& tool,
-                                          const std::string& mode,
-                                          int max_files)
-{
-    return run_static_analysis_task(db, repo_id, 0, full_name, ref, tool, mode, max_files, "{}");
-}
 
 QualityAnalysisResult run_static_analysis_task(Db& db,
                                                int repo_id,

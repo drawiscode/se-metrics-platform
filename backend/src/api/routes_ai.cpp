@@ -157,10 +157,10 @@ static void get_ai_conversations_handler(Db& db, const httplib::Request& req, ht
 
         out += "{\"id\":" + std::to_string(id);
         out += ",\"repo_id\":" + std::to_string(rid);
-        out += ",\"question\":\"" + util::json_escape(q ? (const char*)q : "") + "\"";
-        out += ",\"answer\":\"" + util::json_escape(a ? (const char*)a : "") + "\"";
-        out += ",\"model\":\"" + util::json_escape(m ? (const char*)m : "") + "\"";
-        out += ",\"created_at\":\"" + util::json_escape(t ? (const char*)t : "") + "\"";
+        out += ",\"question\":\"" + util::json_escape(q ? reinterpret_cast<const char*>(q) : "") + "\"";
+        out += ",\"answer\":\"" + util::json_escape(a ? reinterpret_cast<const char*>(a) : "") + "\"";
+        out += ",\"model\":\"" + util::json_escape(m ? reinterpret_cast<const char*>(m) : "") + "\"";
+        out += ",\"created_at\":\"" + util::json_escape(t ? reinterpret_cast<const char*>(t) : "") + "\"";
         out += "}";
     }
     out += "]}";
@@ -209,11 +209,11 @@ static void get_ai_conversation_detail_handler(Db& db, const httplib::Request& r
     std::string out = "{";
     out += "\"id\":" + std::to_string(id);
     out += ",\"repo_id\":" + std::to_string(rid);
-    out += ",\"question\":\"" + util::json_escape(q ? (const char*)q : "") + "\"";
-    out += ",\"answer\":\"" + util::json_escape(a ? (const char*)a : "") + "\"";
-    out += ",\"evidence_json\":" + std::string(ej ? (const char*)ej : "[]");
-    out += ",\"model\":\"" + util::json_escape(m ? (const char*)m : "") + "\"";
-    out += ",\"created_at\":\"" + util::json_escape(t ? (const char*)t : "") + "\"";
+    out += ",\"question\":\"" + util::json_escape(q ? reinterpret_cast<const char*>(q) : "") + "\"";
+    out += ",\"answer\":\"" + util::json_escape(a ? reinterpret_cast<const char*>(a) : "") + "\"";
+    out += ",\"evidence_json\":" + std::string(ej ? reinterpret_cast<const char*>(ej) : "[]");
+    out += ",\"model\":\"" + util::json_escape(m ? reinterpret_cast<const char*>(m) : "") + "\"";
+    out += ",\"created_at\":\"" + util::json_escape(t ? reinterpret_cast<const char*>(t) : "") + "\"";
     out += "}";
     sqlite3_finalize(stmt);
 
