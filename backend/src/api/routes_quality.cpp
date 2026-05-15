@@ -249,6 +249,7 @@ static void get_quality_summary_handler(Db& db, const httplib::Request& req, htt
         if (stmt) sqlite3_finalize(stmt);
     }
 
+    lines_analyzed = q.lines_analyzed > 0 ? q.lines_analyzed : lines_analyzed;
     const double density_per_kloc =
         lines_analyzed > 0 ? (static_cast<double>(q.total_issues) * 1000.0 / lines_analyzed) : 0.0;
     const bool score_degraded = has_baseline && q.score < min_score;
@@ -270,6 +271,7 @@ static void get_quality_summary_handler(Db& db, const httplib::Request& req, htt
         {"min_score", min_score},
         {"max_new_issues", max_new_issues},
         {"max_error_issues", max_error_issues},
+        {"active_error_issues", active_errors},
         {"degraded", score_degraded || error_degraded},
         {"score_degraded", score_degraded},
         {"error_degraded", error_degraded}
@@ -445,8 +447,12 @@ static void get_quality_runs_handler(Db& db, const httplib::Request& req, httpli
 
     nlohmann::json items = nlohmann::json::array();
     while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const int run_id = sqlite3_column_int(stmt, 0);
+        QualityScore run_score = compute_quality_score_for_run(db, run_id);
+        const bool has_baseline = sqlite3_column_type(stmt, 16) != SQLITE_NULL;
+        const double baseline_score = has_baseline ? sqlite3_column_double(stmt, 16) : 0.0;
         nlohmann::json item;
-        item["id"] = sqlite3_column_int(stmt, 0);
+        item["id"] = run_id;
         item["task_id"] = sqlite3_column_type(stmt, 1) == SQLITE_NULL ? nullptr : nlohmann::json(sqlite3_column_int(stmt, 1));
         item["branch"] = col_text(stmt, 2);
         item["tools"] = col_text(stmt, 3);
@@ -462,9 +468,9 @@ static void get_quality_runs_handler(Db& db, const httplib::Request& req, httpli
         item["issues_fixed"] = sqlite3_column_int(stmt, 13);
         try { item["issues_by_severity"] = nlohmann::json::parse(col_text(stmt, 14)); }
         catch (...) { item["issues_by_severity"] = nlohmann::json::object(); }
-        item["score"] = sqlite3_column_double(stmt, 15);
-        item["baseline_score"] = sqlite3_column_type(stmt, 16) == SQLITE_NULL ? nullptr : nlohmann::json(sqlite3_column_double(stmt, 16));
-        item["degraded"] = sqlite3_column_int(stmt, 17) != 0;
+        item["score"] = run_score.score;
+        item["baseline_score"] = has_baseline ? nlohmann::json(baseline_score) : nullptr;
+        item["degraded"] = has_baseline && run_score.score < baseline_score;
         try { item["output"] = nlohmann::json::parse(col_text(stmt, 18)); }
         catch (...) { item["output"] = nlohmann::json::object(); }
         item["error"] = col_text(stmt, 19);
@@ -486,7 +492,7 @@ static void get_quality_trend_handler(Db& db, const httplib::Request& req, httpl
     sqlite3_stmt* stmt = nullptr;
     const char* sql =
         "SELECT id, started_at, status, issues_total, issues_new, issues_fixed, score, "
-        "lines_analyzed, degraded, issues_by_severity_json "
+        "lines_analyzed, degraded, issues_by_severity_json, baseline_score "
         "FROM quality_analysis_runs WHERE repo_id=?1 "
         "ORDER BY started_at DESC, id DESC LIMIT ?2;";
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -499,19 +505,23 @@ static void get_quality_trend_handler(Db& db, const httplib::Request& req, httpl
 
     nlohmann::json items = nlohmann::json::array();
     while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const int run_id = sqlite3_column_int(stmt, 0);
         const int lines = sqlite3_column_int(stmt, 7);
         const int total = sqlite3_column_int(stmt, 3);
+        QualityScore run_score = compute_quality_score_for_run(db, run_id);
+        const bool has_baseline = sqlite3_column_type(stmt, 10) != SQLITE_NULL;
+        const double baseline_score = has_baseline ? sqlite3_column_double(stmt, 10) : 0.0;
         nlohmann::json item;
-        item["run_id"] = sqlite3_column_int(stmt, 0);
+        item["run_id"] = run_id;
         item["started_at"] = col_text(stmt, 1);
         item["status"] = col_text(stmt, 2);
         item["issues_total"] = total;
         item["issues_new"] = sqlite3_column_int(stmt, 4);
         item["issues_fixed"] = sqlite3_column_int(stmt, 5);
-        item["score"] = sqlite3_column_double(stmt, 6);
+        item["score"] = run_score.score;
         item["lines_analyzed"] = lines;
         item["density_per_kloc"] = lines > 0 ? (static_cast<double>(total) * 1000.0 / lines) : 0.0;
-        item["degraded"] = sqlite3_column_int(stmt, 8) != 0;
+        item["degraded"] = has_baseline && run_score.score < baseline_score;
         try { item["severity"] = nlohmann::json::parse(col_text(stmt, 9)); }
         catch (...) { item["severity"] = nlohmann::json::object(); }
         items.push_back(std::move(item));

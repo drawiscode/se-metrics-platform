@@ -24,7 +24,7 @@
           </div>
         </div>
         <div v-if="summary.baseline?.configured" class="baseline-info" :class="{ degraded: summary.baseline.degraded }">
-          <span v-if="summary.baseline.degraded">⚠ 质量退化 — 低于基线 {{ summary.baseline.min_score }} 分</span>
+          <span v-if="summary.baseline.degraded">⚠ {{ baselineStatusText }}</span>
           <span v-else>✓ 质量达标 — 基线 {{ summary.baseline.min_score }} 分</span>
         </div>
       </div>
@@ -52,6 +52,8 @@
         <select v-model="analysisTool">
           <option value="cppcheck">cppcheck</option>
           <option value="clang-tidy">clang-tidy</option>
+          <option value="cpplint">cpplint</option>
+          <option value="flawfinder">flawfinder</option>
           <option value="all">全部工具</option>
         </select>
         <select v-model="analysisMode">
@@ -89,6 +91,8 @@
           <option value="">全部工具</option>
           <option value="cppcheck">cppcheck</option>
           <option value="clang-tidy">clang-tidy</option>
+          <option value="cpplint">cpplint</option>
+          <option value="flawfinder">flawfinder</option>
         </select>
         <select v-model="issueFilter.severity" @change="loadIssues()">
           <option value="">全部等级</option>
@@ -427,6 +431,17 @@ export default {
     },
     maxSeverityCount() {
       return Math.max(1, ...this.severityEntries.map(([, c]) => c))
+    },
+    baselineStatusText() {
+      const b = this.summary.baseline ?? {}
+      const score = this.summary.quality?.score ?? 0
+      if (b.score_degraded) {
+        return `质量退化 — 评分 ${this.formatScore(score)} 低于基线 ${b.min_score} 分`
+      }
+      if (b.error_degraded) {
+        return `质量退化 — Error 问题 ${b.active_error_issues ?? 0} 个，超过基线 ${b.max_error_issues} 个`
+      }
+      return `质量退化 — 未满足质量基线`
     },
 
     trendPointObjects() {

@@ -5,15 +5,27 @@
 
 ---
 ## 环境配置相关
-(1)backend目录创建config/config.env文件，里面填写如下字段：
+(1) backend/config/ 目录下 cp config.env.example config.env
 
-DEVINSIGHT_DB=实际data/devinsight.db文件所在绝对路径
+DEVINSIGHT_DB 存储数据库的文件目录，后端运行生成的.db文件默认将会生成于此
 
-PORT=8080
+GITHUB_TOKEN github上获得personal access token
 
-GITHUB_TOKEN=从github上面获得的token
+LLM_API_KEY 用来配置后端大模型的api接口
 
-CMakeLists.txt中第一行vcpkg路径改为你实际vcpkg所在路径
+LLM_MODEL 对应上面你所使用的大模型的【官方名称】
+
+CPPCHECK_BIN 后端进行质量分析的 cppcheck 的 bin 路径
+
+QUALITY_OUTPUT_DIR 质量分析结果输出目录
+
+REPO_CLONE_ROOT 扒取 github 仓库代码到本地的目录
+
+EMBEDDING_API_BASE 用来文本向量处理的大模型的目标网址
+
+EMBEDDING_API_KEY 用来处理文本向量的大模型 api
+
+EMBEDDING_MODEL 对应官方名称
 
 (2)第三方库依赖下载：通过vcpkg下载
 
@@ -34,6 +46,10 @@ target_include_directories(devinsight_backend PRIVATE
     C:/vcpkg/installed/x64-windows/include 
 
 )
+
+下载 cppcheck 到本地
+
+下载 nodejs 到本地
 
 sqlite3 不支持 mingw，建议使用 MSVC 进行编译。
 
