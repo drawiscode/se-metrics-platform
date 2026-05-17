@@ -348,7 +348,7 @@ void Db::init_schema()
     );
     CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_tool ON quality_issues(repo_id, tool);
     CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_file ON quality_issues(repo_id, file_path);
-    CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_tool ON quality_issues(repo_id, tool);
+
 
     CREATE TABLE IF NOT EXISTS quality_analysis_tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

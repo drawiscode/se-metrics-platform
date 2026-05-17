@@ -70,6 +70,7 @@ static void post_code_index_handler(Db& db, const httplib::Request& req, httplib
                     + ",\"embeddings_generated\":" + std::to_string(result.embeddings_generated)
                     + ",\"skipped_files_reason_stats\":" + map_to_json(result.skipped_reason)
                     + "}";
+    res.status = 200;
     res.set_content(out, kJson);
 }
 

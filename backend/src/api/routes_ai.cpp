@@ -62,6 +62,7 @@ static void post_knowledge_build_handler(Db& db, const httplib::Request& req, ht
     }
 
     auto result = build_knowledge_index(db, rid);
+    res.status = 200;
     res.set_content(
         "{\"ok\":true,\"repo_id\":" + std::to_string(rid)
         + ",\"result\":" + build_result_to_json(result) + "}",
@@ -85,6 +86,7 @@ static void get_knowledge_search_handler(Db& db, const httplib::Request& req, ht
     }
 
     auto chunks = search_knowledge(db, rid, query, top);
+    res.status = 200;
     res.set_content("{\"items\":" + knowledge_chunks_to_json(chunks) + "}", kJsonUtf8);
 }
 
@@ -128,6 +130,7 @@ static void post_ai_ask_handler(Db& db, const httplib::Request& req, httplib::Re
     }
 
     auto answer = ask_question(db, repo_id, question);
+    res.status = 200;
     res.set_content(ai_answer_to_json(answer), kJsonUtf8);
 
     const auto end = std::chrono::steady_clock::now();
@@ -221,6 +224,7 @@ static void get_ai_conversations_handler(Db& db, const httplib::Request& req, ht
     out += "]}";
     sqlite3_finalize(stmt);
 
+    res.status = 200;
     res.set_content(out, kJsonUtf8);
 }
 
@@ -272,6 +276,7 @@ static void get_ai_conversation_detail_handler(Db& db, const httplib::Request& r
     out += "}";
     sqlite3_finalize(stmt);
 
+    res.status = 200;
     res.set_content(out, kJsonUtf8);
 }
 
