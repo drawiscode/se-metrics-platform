@@ -61,7 +61,7 @@ static void get_repo_tasks_handler(Db& db, const httplib::Request& req, httplib:
         t["repo_id"] = sqlite3_column_int(stmt, 1);
         auto col_text = [&](int i)->std::string{
             const unsigned char* p = sqlite3_column_text(stmt, i);
-            return p ? (const char*)p : "";
+            return p ? reinterpret_cast<const char*>(p) : "";
         };
         t["title"] = col_text(2);
         t["priority"] = col_text(3);
@@ -171,7 +171,7 @@ static void post_repo_tasks_handler(Db& db, const httplib::Request& req, httplib
             res.status = 400;
             nlohmann::json out;
             out["error"] = err;
-            out["index"] = (int)i;
+            out["index"] = static_cast<int>(i);
             out["bad_item"] = t;
             res.set_content(out.dump(), kJson);
 
@@ -185,7 +185,7 @@ static void post_repo_tasks_handler(Db& db, const httplib::Request& req, httplib
     nlohmann::json out;
     out["ok"] = true;
     out["changed"] = changed;
-    out["count"] = (int)items.size();
+    out["count"] = static_cast<int>(items.size());
     res.set_content(out.dump(), kJson);
 }
 

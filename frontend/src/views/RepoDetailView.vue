@@ -4,6 +4,7 @@
       <h2>Repo #{{ repoId }}</h2>
       <button :disabled="busy" @click="loadAll">刷新</button>
       <RouterLink :to="`/repos/${repoId}/tasks`">任务清单</RouterLink>
+      <RouterLink :to="`/repos/${repoId}/quality`">代码质量</RouterLink>
       <RouterLink :to="`/repos/${repoId}/experts`">隐形专家</RouterLink>
       <RouterLink to="/repos">返回列表</RouterLink>
     </div>
@@ -64,6 +65,25 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="card">
+        <div class="row row-between">
+          <h3>代码质量</h3>
+          <RouterLink :to="`/repos/${repoId}/quality`" class="link-sm">详情 →</RouterLink>
+        </div>
+        <div class="quality-score-row" v-if="qualitySummary">
+          <div class="qs-circle" :class="qsLevelClass(qualitySummary.quality?.score ?? 0)">
+            <span class="qs-num">{{ formatScore(qualitySummary.quality?.score) }}</span>
+            <span class="qs-label">/ 100</span>
+          </div>
+          <div class="qs-meta">
+            <div>问题数: <strong>{{ qualitySummary.quality?.total_issues ?? 0 }}</strong></div>
+            <div>密度: <strong>{{ formatDensity(qualitySummary.density_per_kloc) }}</strong>/KLOC</div>
+            <div v-if="qualitySummary.baseline?.degraded" class="qs-degraded">⚠ 质量退化</div>
+          </div>
+        </div>
+        <p v-else class="muted">暂无质量数据，点击"详情"运行分析。</p>
       </div>
 
       <div class="card">
@@ -216,6 +236,8 @@
                 ciTrendDays: 7,
                 ciTrend: [],
 
+                qualitySummary: null,
+
                 days: 30,
                 activity: [],
                 hotfiles: [],
@@ -281,6 +303,7 @@
                     await this.loadCiTrend()
                     await this.loadActivity()
                     await this.loadIntro()
+                    await this.loadQuality()
 
                     const hf = await apiGet(`/api/repos/${this.repoId}/hotfiles`)
                     this.hotfiles = hf.items ?? hf
@@ -297,6 +320,14 @@
                 const data = await apiGet(`/api/repos/${this.repoId}/intro`)
                 this.introText = data.intro_text ?? ''
                 this.introUpdatedAt = data.intro_updated_at ?? ''
+            },
+
+            async loadQuality() {
+                try {
+                    this.qualitySummary = await apiGet(`/api/repos/${this.repoId}/quality/summary`)
+                } catch {
+                    this.qualitySummary = null
+                }
             },
 
             async loadActivity() {
@@ -319,6 +350,14 @@
             formatPercent(v) {
               const n = Number(v ?? 0)
               return `${(n * 100).toFixed(1)}%`
+            },
+
+            formatScore(s) { return Number(s ?? 0).toFixed(1) },
+            formatDensity(d) { return Number(d ?? 0).toFixed(2) },
+            qsLevelClass(score) {
+              if (score >= 80) return 'qs-good'
+              if (score >= 60) return 'qs-warn'
+              return 'qs-bad'
             },
 
             levelClass(level) {
@@ -377,6 +416,23 @@
           stroke-linejoin: round;
         }
         .trend-dot { fill: #0f766e; }
+
+        .link-sm { font-size: 13px; color: #2563eb; text-decoration: none; }
+        .link-sm:hover { text-decoration: underline; }
+
+        .quality-score-row { display: flex; gap: 16px; align-items: center; }
+        .qs-circle {
+          width: 64px; height: 64px; border-radius: 50%;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          border: 3px solid #e5e7eb;
+        }
+        .qs-circle.qs-good { border-color: #10b981; background: #d1fae5; }
+        .qs-circle.qs-warn { border-color: #f59e0b; background: #fef3c7; }
+        .qs-circle.qs-bad { border-color: #ef4444; background: #fee2e2; }
+        .qs-num { font-size: 18px; font-weight: 700; }
+        .qs-label { font-size: 10px; color: #6b7280; }
+        .qs-meta { font-size: 13px; line-height: 1.6; }
+        .qs-degraded { color: #dc2626; font-weight: 600; font-size: 12px; }
 
         @media (max-width: 900px) {
           .grid { grid-template-columns: 1fr; }

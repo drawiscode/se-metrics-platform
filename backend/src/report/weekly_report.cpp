@@ -39,7 +39,7 @@ static UrlParts parse_url(const std::string& url)
     auto slash = rest.find('/');
     if (slash != std::string::npos) {
         p.path_prefix = rest.substr(slash);
-        rest = rest.substr(0, slash);
+        rest.resize(slash);
     }
     auto colon = rest.find(':');
     if (colon != std::string::npos) {
@@ -252,7 +252,7 @@ static std::string build_report_context(Db& db, int repo_id,
             while (sqlite3_step(stmt) == SQLITE_ROW) {
                 auto login = sqlite3_column_text(stmt, 0);
                 int cnt = sqlite3_column_int(stmt, 1);
-                ctx << "- " << (login ? (const char*)login : "?") << ": " << cnt << " commits\n";
+                ctx << "- " << (login ? reinterpret_cast<const char*>(login) : "?") << ": " << cnt << " commits\n";
             }
             sqlite3_finalize(stmt);
         }
@@ -280,9 +280,9 @@ static std::string build_report_context(Db& db, int repo_id,
                 auto metric_raw = sqlite3_column_text(stmt, 2);
                 double current = sqlite3_column_double(stmt, 3);
                 double baseline = sqlite3_column_double(stmt, 4);
-                ctx << "- [" << (sev_raw ? (const char*)sev_raw : "?") << "] "
-                    << (type_raw ? (const char*)type_raw : "?") << ": "
-                    << (metric_raw ? (const char*)metric_raw : "?")
+                ctx << "- [" << (sev_raw ? reinterpret_cast<const char*>(sev_raw) : "?") << "] "
+                    << (type_raw ? reinterpret_cast<const char*>(type_raw) : "?") << ": "
+                    << (metric_raw ? reinterpret_cast<const char*>(metric_raw) : "?")
                     << " (current=" << current << ", baseline=" << baseline << ")\n";
             }
             sqlite3_finalize(stmt);
@@ -333,7 +333,10 @@ static void save_report_to_knowledge(Db& db, int repo_id,
     std::string source_id = "week_" + week_start;
     // 截取前 2000 字符作为知识块内容
     std::string content = report_text;
-    if (content.size() > 2000) content = content.substr(0, 2000) + "...";
+    if (content.size() > 2000) {
+        content.resize(2000);
+        content += "...";
+    }
 
     const char* sql =
         "INSERT INTO knowledge_chunks(repo_id, source_type, source_id, title, content, author, event_time) "
@@ -362,7 +365,7 @@ static std::string get_repo_name(Db& db, int repo_id)
         sqlite3_bind_int(stmt, 1, repo_id);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             auto v = sqlite3_column_text(stmt, 0);
-            if (v) name = (const char*)v;
+            if (v) name = reinterpret_cast<const char*>(v);
         }
     }
     if (stmt) sqlite3_finalize(stmt);
@@ -461,12 +464,12 @@ WeeklyReport get_latest_report(Db& db, int repo_id)
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         r.id = sqlite3_column_int(stmt, 0);
         r.repo_id = sqlite3_column_int(stmt, 1);
-        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? (const char*)v2 : "";
-        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? (const char*)v3 : "";
-        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? (const char*)v4 : "";
-        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? (const char*)v5 : "";
-        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? (const char*)v6 : "";
-        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? (const char*)v7 : "";
+        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? reinterpret_cast<const char*>(v2) : "";
+        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? reinterpret_cast<const char*>(v3) : "";
+        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? reinterpret_cast<const char*>(v4) : "";
+        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? reinterpret_cast<const char*>(v5) : "";
+        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? reinterpret_cast<const char*>(v6) : "";
+        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? reinterpret_cast<const char*>(v7) : "";
     }
     sqlite3_finalize(stmt);
     return r;
@@ -489,12 +492,12 @@ WeeklyReport get_weekly_report_by_id(Db& db, int repo_id, int report_id)
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         r.id = sqlite3_column_int(stmt, 0);
         r.repo_id = sqlite3_column_int(stmt, 1);
-        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? (const char*)v2 : "";
-        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? (const char*)v3 : "";
-        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? (const char*)v4 : "";
-        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? (const char*)v5 : "";
-        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? (const char*)v6 : "";
-        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? (const char*)v7 : "";
+        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? reinterpret_cast<const char*>(v2) : "";
+        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? reinterpret_cast<const char*>(v3) : "";
+        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? reinterpret_cast<const char*>(v4) : "";
+        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? reinterpret_cast<const char*>(v5) : "";
+        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? reinterpret_cast<const char*>(v6) : "";
+        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? reinterpret_cast<const char*>(v7) : "";
     }
     sqlite3_finalize(stmt);
     return r;
@@ -518,12 +521,12 @@ std::vector<WeeklyReport> list_weekly_reports(Db& db, int repo_id, int limit)
         WeeklyReport r;
         r.id = sqlite3_column_int(stmt, 0);
         r.repo_id = sqlite3_column_int(stmt, 1);
-        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? (const char*)v2 : "";
-        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? (const char*)v3 : "";
-        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? (const char*)v4 : "";
-        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? (const char*)v5 : "";
-        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? (const char*)v6 : "";
-        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? (const char*)v7 : "";
+        auto v2 = sqlite3_column_text(stmt, 2); r.week_start = v2 ? reinterpret_cast<const char*>(v2) : "";
+        auto v3 = sqlite3_column_text(stmt, 3); r.week_end = v3 ? reinterpret_cast<const char*>(v3) : "";
+        auto v4 = sqlite3_column_text(stmt, 4); r.report_text = v4 ? reinterpret_cast<const char*>(v4) : "";
+        auto v5 = sqlite3_column_text(stmt, 5); r.metrics_json = v5 ? reinterpret_cast<const char*>(v5) : "";
+        auto v6 = sqlite3_column_text(stmt, 6); r.model = v6 ? reinterpret_cast<const char*>(v6) : "";
+        auto v7 = sqlite3_column_text(stmt, 7); r.created_at = v7 ? reinterpret_cast<const char*>(v7) : "";
         results.push_back(std::move(r));
     }
     sqlite3_finalize(stmt);

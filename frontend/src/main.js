@@ -6,6 +6,7 @@ import RepoDetailView from './views/RepoDetailView.vue'
 import TasksView from './views/TasksView.vue'
 import WeeklyReportsView from './views/WeeklyReportsView.vue' 
 import ExpertsView from './views/ExpertsView.vue'
+import QualityView from './views/QualityView.vue'
 
 import AiView from './views/AiView.vue'
 import AiConversationDetailView from './views/AiConversationDetailView.vue'
@@ -19,6 +20,7 @@ const router = createRouter({
     { path: '/repos/:id/tasks', component: TasksView, props: true },
     { path: '/repos/:id/reports', component: WeeklyReportsView, props: true }, 
     { path: '/repos/:id/experts', component: ExpertsView, props: true },
+    { path: '/repos/:id/quality', component: QualityView, props: true },
     { path: '/ai', component: AiView },
     { path: '/ai/conversations/:id', component: AiConversationDetailView, props: true },
   ],

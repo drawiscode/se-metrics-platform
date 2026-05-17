@@ -103,6 +103,41 @@ export async function apiPatch(path, body = undefined, options = {}) {
   return text ? JSON.parse(text) : {}
 }
 
+export async function apiPut(path, body = undefined, options = {}) {
+  const headers = { ...(options.headers || {}) }
+
+  let fetchBody = undefined
+  if (body !== undefined) {
+    if (!headers['Content-Type'] && !headers['content-type']) {
+      headers['Content-Type'] = 'application/json'
+    }
+    if (
+      typeof body === 'string' ||
+      body instanceof FormData ||
+      body instanceof Blob ||
+      body instanceof ArrayBuffer
+    ) {
+      fetchBody = body
+    } else {
+      fetchBody = JSON.stringify(body)
+    }
+  }
+
+  const res = await fetch(path, {
+    method: 'PUT',
+    headers,
+    body: fetchBody,
+    ...options,
+  })
+
+  const text = await readTextSafe(res)
+  if (!res.ok) {
+    console.error(`API PUT ${path} failed with status ${res.status}:`, text)
+    throw new ApiError(res.status, `PUT ${path} failed`, text)
+  }
+  return text ? JSON.parse(text) : {}
+}
+
 
 export async function apiDelete(path, options = {}) {
   const res = await fetch(path, { method: 'DELETE', ...(options || {}) })

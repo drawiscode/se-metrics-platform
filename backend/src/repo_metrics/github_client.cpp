@@ -22,7 +22,7 @@ static bool parse_proxy_url(const std::string& raw, ProxyConfig& out)
 
     // 去掉可能携带的路径
     auto slash = s.find('/');
-    if (slash != std::string::npos) s = s.substr(0, slash);
+    if (slash != std::string::npos) s.resize(slash);
 
     auto colon = s.rfind(':');
     if (colon == std::string::npos || colon == 0 || colon + 1 >= s.size()) return false;
@@ -132,21 +132,6 @@ static std::string simple_encode_url(const std::string& src)
     }
 
     return out;
-}
-
-void Judge_GitHub_Token(const std::string &token)
-{
-    // 调试输出，方便确认是否拿到 token
-    if (token.empty())
-    {
-        std::cerr << "[DEBUG] GITHUB_TOKEN is empty\n";
-    }
-    else
-    {
-        std::cerr << "[DEBUG] GITHUB_TOKEN loaded, length = " << token.size() << '\n';
-        // 不要直接输出 token，容易泄漏机密，调试时最多输出长度或前几位做确认
-       // std::cerr << "[DEBUG] GITHUB_TOKEN = " << token << '\n';
-    }
 }
 
 static bool validate_full_name(const std::string& full_name)

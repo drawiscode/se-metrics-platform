@@ -21,7 +21,7 @@ static std::string dirname_depth(const std::string& path, int depth) {
     std::vector<std::string> parts;
     for (auto it = p.begin(); it != p.end(); ++it) parts.emplace_back(it->string());
     if (parts.empty()) return "";
-    int take = std::min((int)parts.size(), depth);
+    int take = std::min(static_cast<int>(parts.size()), depth);
     std::ostringstream os;
     for (int i = 0; i < take; ++i) {
         if (i) os << "/";
@@ -141,6 +141,6 @@ std::vector<HotDir> compute_hot_dirs(Db& db, httplib::Response& res, int repo_id
     std::sort(out.begin(), out.end(), [](const HotDir& a, const HotDir& b){
         return (a.churn()) > (b.churn());
     });
-    if ((int)out.size() > top_n) out.resize(top_n);
+    if (static_cast<int>(out.size()) > top_n) out.resize(top_n);
     return out;
 }

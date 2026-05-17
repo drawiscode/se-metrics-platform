@@ -289,4 +289,105 @@ void register_delete_routes(httplib::Server& app, Db& db)
                {
                    delete_repo_release_handler(db, req, res);
                });
+
+    // ---- 2.2 质量分析子系统 ----
+
+    // 删除指定质量分析任务
+    app.Delete(R"(/api/quality/tasks/(\d+))",
+               [&db](const httplib::Request& req, httplib::Response& res) {
+                   try {
+                       const int task_id = std::stoi(req.matches[1]);
+                       sqlite3* sdb = db.handle();
+                       sqlite3_stmt* stmt = nullptr;
+                       const char* sql = "DELETE FROM quality_analysis_tasks WHERE id=?1;";
+                       if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+                           res.status = 500;
+                           res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       sqlite3_bind_int(stmt, 1, task_id);
+                       const int rc = sqlite3_step(stmt);
+                       sqlite3_finalize(stmt);
+                       if (rc != SQLITE_DONE) {
+                           res.status = 500;
+                           res.set_content(R"({"error":"db step failed"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       if (sqlite3_changes(sdb) == 0) {
+                           res.status = 404;
+                           res.set_content(R"({"error":"task not found"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       res.set_content(R"({"ok":true})", "application/json; charset=utf-8");
+                   } catch (const std::exception& e) {
+                       res.status = 500;
+                       res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json; charset=utf-8");
+                   }
+               });
+
+    // 删除指定质量分析运行记录
+    app.Delete(R"(/api/quality/runs/(\d+))",
+               [&db](const httplib::Request& req, httplib::Response& res) {
+                   try {
+                       const int run_id = std::stoi(req.matches[1]);
+                       sqlite3* sdb = db.handle();
+                       sqlite3_stmt* stmt = nullptr;
+                       const char* sql = "DELETE FROM quality_analysis_runs WHERE id=?1;";
+                       if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+                           res.status = 500;
+                           res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       sqlite3_bind_int(stmt, 1, run_id);
+                       const int rc = sqlite3_step(stmt);
+                       sqlite3_finalize(stmt);
+                       if (rc != SQLITE_DONE) {
+                           res.status = 500;
+                           res.set_content(R"({"error":"db step failed"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       if (sqlite3_changes(sdb) == 0) {
+                           res.status = 404;
+                           res.set_content(R"({"error":"run not found"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       res.set_content(R"({"ok":true})", "application/json; charset=utf-8");
+                   } catch (const std::exception& e) {
+                       res.status = 500;
+                       res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json; charset=utf-8");
+                   }
+               });
+
+    // 删除单个质量问题
+    app.Delete(R"(/api/quality/issues/(\d+))",
+               [&db](const httplib::Request& req, httplib::Response& res) {
+                   try {
+                       const int issue_id = std::stoi(req.matches[1]);
+                       sqlite3* sdb = db.handle();
+                       sqlite3_stmt* stmt = nullptr;
+                       const char* sql = "DELETE FROM quality_issues WHERE id=?1;";
+                       if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+                           res.status = 500;
+                           res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       sqlite3_bind_int(stmt, 1, issue_id);
+                       const int rc = sqlite3_step(stmt);
+                       sqlite3_finalize(stmt);
+                       if (rc != SQLITE_DONE) {
+                           res.status = 500;
+                           res.set_content(R"({"error":"db step failed"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       if (sqlite3_changes(sdb) == 0) {
+                           res.status = 404;
+                           res.set_content(R"({"error":"issue not found"})", "application/json; charset=utf-8");
+                           return;
+                       }
+                       res.set_content(R"({"ok":true})", "application/json; charset=utf-8");
+                   } catch (const std::exception& e) {
+                       res.status = 500;
+                       res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", "application/json; charset=utf-8");
+                   }
+               });
 }

@@ -2,14 +2,15 @@
 # DevInsight Backend - CMakeLists.txt
 # ============================================================
 # 支持两种构建方式:
-#   方式 A (Windows/vcpkg):  设置 CMAKE_TOOLCHAIN_FILE 指向 vcpkg.cmake
+#   方式 A (Windows/vcpkg):  p设置 CMAKE_TOOLCHAIN_FILE 指向 vcpkg.cmake
 #   方式 B (Linux/系统包):    apt install libsqlite3-dev libssl-dev nlohmann-json3-dev
 #                             或使用 conda: conda install sqlite openssl nlohmann_json
 # 详见 README.md 环境配置章节
 # ============================================================
 
 
-set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+# set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+set(CMAKE_TOOLCHAIN_FILE "E:/Code/se-metrics-platform/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 
 cmake_minimum_required(VERSION 3.20)
 project(devinsight_backend LANGUAGES C CXX)
@@ -94,7 +95,7 @@ endif()
 
 # ---- 编译选项 ----
 if(MSVC)
-    target_compile_options(devinsight_backend PRIVATE /W4)
+    target_compile_options(devinsight_backend PRIVATE /W4 /utf-8)
     target_compile_definitions(devinsight_backend PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(devinsight_backend PRIVATE -Wall -Wextra -Wpedantic)
