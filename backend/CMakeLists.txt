@@ -29,6 +29,7 @@ add_executable(devinsight_backend
     src/api/routes_risk.cpp
     src/api/routes_tasks.cpp
     src/common/util.cpp
+    src/common/system_log.cpp
     src/db/db.cpp
     src/repo_metrics/github_client.cpp
     src/repo_metrics/metrics.cpp

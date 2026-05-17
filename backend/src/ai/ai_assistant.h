@@ -21,6 +21,11 @@ struct AiAnswer {
     std::string answer;                  // LLM 生成的回答文本
     std::vector<AiEvidence> evidence;    // 引用的证据列表
     std::string model;                   // 使用的模型名称
+    int prompt_tokens = 0;
+    int completion_tokens = 0;
+    int total_tokens = 0;
+    double cost_usd = 0.0;
+    int duration_ms = 0;
     bool success = false;
     std::string error;                   // 失败时的错误信息
 };

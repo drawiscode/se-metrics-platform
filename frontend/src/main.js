@@ -7,6 +7,7 @@ import TasksView from './views/TasksView.vue'
 import WeeklyReportsView from './views/WeeklyReportsView.vue' 
 import ExpertsView from './views/ExpertsView.vue'
 import QualityView from './views/QualityView.vue'
+import SystemLogsView from './views/SystemLogsView.vue'
 
 import AiView from './views/AiView.vue'
 import AiConversationDetailView from './views/AiConversationDetailView.vue'
@@ -23,6 +24,7 @@ const router = createRouter({
     { path: '/repos/:id/quality', component: QualityView, props: true },
     { path: '/ai', component: AiView },
     { path: '/ai/conversations/:id', component: AiConversationDetailView, props: true },
+    { path: '/system-logs', component: SystemLogsView },
   ],
 })
 

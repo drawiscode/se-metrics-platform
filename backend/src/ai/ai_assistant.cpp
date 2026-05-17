@@ -15,6 +15,7 @@
 #include <sstream>
 #include <ctime>
 #include <iomanip>
+#include <chrono>
 
 // ============================================================
 // 辅助: URL 解析（用于 LLM API 调用）
@@ -541,11 +542,26 @@ static std::string call_llm(const std::string& system_prompt,
                             const std::string& api_base,
                             const std::string& api_key,
                             const std::string& model,
-                            std::string& error_out)
+                            std::string& error_out,
+                            int& prompt_tokens_out,
+                            int& completion_tokens_out,
+                            int& total_tokens_out,
+                            double& cost_usd_out,
+                            int& duration_ms_out)
 {
+    prompt_tokens_out = 0;
+    completion_tokens_out = 0;
+    total_tokens_out = 0;
+    cost_usd_out = 0.0;
+    duration_ms_out = 0;
+
+    const auto begin = std::chrono::steady_clock::now();
+
     auto url = parse_url(api_base);
     if (url.host.empty()) {
         error_out = "LLM_API_BASE URL 无效";
+        const auto end = std::chrono::steady_clock::now();
+        duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
         return "";
     }
 
@@ -590,10 +606,14 @@ static std::string call_llm(const std::string& system_prompt,
         auto res = cli.Post(path, headers, body_str, "application/json");
         if (!res) {
             error_out = "LLM API 请求失败 (SSL): " + httplib::to_string(res.error());
+            const auto end = std::chrono::steady_clock::now();
+            duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
             return "";
         }
         if (res->status != 200) {
             error_out = "LLM API 返回状态 " + std::to_string(res->status) + ": " + res->body;
+            const auto end = std::chrono::steady_clock::now();
+            duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
             return "";
         }
         response_text = res->body;
@@ -607,10 +627,14 @@ static std::string call_llm(const std::string& system_prompt,
         auto res = cli.Post(path, headers, body_str, "application/json");
         if (!res) {
             error_out = "LLM API 请求失败";
+            const auto end = std::chrono::steady_clock::now();
+            duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
             return "";
         }
         if (res->status != 200) {
             error_out = "LLM API 返回状态 " + std::to_string(res->status) + ": " + res->body;
+            const auto end = std::chrono::steady_clock::now();
+            duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
             return "";
         }
         response_text = res->body;
@@ -619,12 +643,32 @@ static std::string call_llm(const std::string& system_prompt,
     // 解析 OpenAI 格式的响应
     try {
         auto j = nlohmann::json::parse(response_text);
+
+        if (j.contains("usage") && j["usage"].is_object()) {
+            const auto& usage = j["usage"];
+            prompt_tokens_out = usage.value("prompt_tokens", 0);
+            completion_tokens_out = usage.value("completion_tokens", 0);
+            total_tokens_out = usage.value("total_tokens", prompt_tokens_out + completion_tokens_out);
+
+            double prompt_rate = 0.0;
+            double completion_rate = 0.0;
+            try { prompt_rate = std::stod(util::get_env("LLM_PRICE_PROMPT_PER_1K", "0")); } catch (...) {}
+            try { completion_rate = std::stod(util::get_env("LLM_PRICE_COMPLETION_PER_1K", "0")); } catch (...) {}
+            cost_usd_out = (static_cast<double>(prompt_tokens_out) / 1000.0) * prompt_rate
+                         + (static_cast<double>(completion_tokens_out) / 1000.0) * completion_rate;
+        }
+
+        const auto end = std::chrono::steady_clock::now();
+        duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+
         if (j.contains("choices") && j["choices"].is_array() && !j["choices"].empty()) {
             return j["choices"][0]["message"]["content"].get<std::string>();
         }
         error_out = "LLM 响应格式异常";
         return "";
     } catch (const std::exception& e) {
+        const auto end = std::chrono::steady_clock::now();
+        duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
         error_out = std::string("LLM 响应解析失败: ") + e.what();
         return "";
     }
@@ -690,8 +734,15 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
 
     // 3. 调用 LLM
     std::string llm_error;
+    int prompt_tokens = 0;
+    int completion_tokens = 0;
+    int total_tokens = 0;
+    double cost_usd = 0.0;
+    int duration_ms = 0;
     std::string llm_response = call_llm(system_prompt, user_message,
-                                        api_base, api_key, model, llm_error);
+                                        api_base, api_key, model, llm_error,
+                                        prompt_tokens, completion_tokens, total_tokens,
+                                        cost_usd, duration_ms);
     // std::cerr << "Raw LLM Response: " << llm_response << std::endl;
     if (!llm_error.empty()) {
         answer.error = llm_error;
@@ -701,6 +752,11 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
     // 4. 组装返回结果
     answer.answer  = llm_response;
     answer.model   = model;
+    answer.prompt_tokens = prompt_tokens;
+    answer.completion_tokens = completion_tokens;
+    answer.total_tokens = total_tokens;
+    answer.cost_usd = cost_usd;
+    answer.duration_ms = duration_ms;
     answer.success = true;
 
     for (const auto& e : evidence) {
@@ -739,6 +795,14 @@ std::string ai_answer_to_json(const AiAnswer& a)
     if (!a.model.empty()) {
         j["model"] = a.model;
     }
+
+    j["usage"] = {
+        {"prompt_tokens", a.prompt_tokens},
+        {"completion_tokens", a.completion_tokens},
+        {"total_tokens", a.total_tokens},
+        {"cost_usd", a.cost_usd},
+        {"duration_ms", a.duration_ms}
+    };
 
     j["evidence"] = nlohmann::json::array();
     for (const auto& e : a.evidence) {

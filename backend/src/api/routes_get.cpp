@@ -868,6 +868,192 @@ static void get_repo_intro_handler(Db& db,const httplib::Request &req,httplib::R
 
     res.set_content(out.dump(), "application/json; charset=utf-8");
 }
+
+static void get_system_operation_logs_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int limit = std::max(1, std::min(500, get_int_param(req, "limit", 100)));
+    const int offset = std::max(0, get_int_param(req, "offset", 0));
+    const std::string type = req.has_param("type") ? req.get_param_value("type") : "";
+    const std::string status = req.has_param("status") ? req.get_param_value("status") : "";
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+
+    const char* sql_all =
+        "SELECT id, created_at, operation_type, target, status, duration_ms, ip, detail_json "
+        "FROM system_operation_logs "
+        "ORDER BY id DESC LIMIT ?1 OFFSET ?2;";
+    const char* sql_type =
+        "SELECT id, created_at, operation_type, target, status, duration_ms, ip, detail_json "
+        "FROM system_operation_logs WHERE operation_type=?1 "
+        "ORDER BY id DESC LIMIT ?2 OFFSET ?3;";
+    const char* sql_status =
+        "SELECT id, created_at, operation_type, target, status, duration_ms, ip, detail_json "
+        "FROM system_operation_logs WHERE status=?1 "
+        "ORDER BY id DESC LIMIT ?2 OFFSET ?3;";
+    const char* sql_type_status =
+        "SELECT id, created_at, operation_type, target, status, duration_ms, ip, detail_json "
+        "FROM system_operation_logs WHERE operation_type=?1 AND status=?2 "
+        "ORDER BY id DESC LIMIT ?3 OFFSET ?4;";
+
+    const char* sql = sql_all;
+    if (!type.empty() && !status.empty()) sql = sql_type_status;
+    else if (!type.empty()) sql = sql_type;
+    else if (!status.empty()) sql = sql_status;
+
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        res.status = 500;
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
+        return;
+    }
+
+    if (!type.empty() && !status.empty()) {
+        sqlite3_bind_text(stmt, 1, type.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, status.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 3, limit);
+        sqlite3_bind_int(stmt, 4, offset);
+    } else if (!type.empty()) {
+        sqlite3_bind_text(stmt, 1, type.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, limit);
+        sqlite3_bind_int(stmt, 3, offset);
+    } else if (!status.empty()) {
+        sqlite3_bind_text(stmt, 1, status.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, limit);
+        sqlite3_bind_int(stmt, 3, offset);
+    } else {
+        sqlite3_bind_int(stmt, 1, limit);
+        sqlite3_bind_int(stmt, 2, offset);
+    }
+
+    nlohmann::json out;
+    out["items"] = nlohmann::json::array();
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* created = sqlite3_column_text(stmt, 1);
+        const unsigned char* op_type = sqlite3_column_text(stmt, 2);
+        const unsigned char* target = sqlite3_column_text(stmt, 3);
+        const unsigned char* st = sqlite3_column_text(stmt, 4);
+        const unsigned char* ip = sqlite3_column_text(stmt, 6);
+        const unsigned char* detail = sqlite3_column_text(stmt, 7);
+
+        nlohmann::json row;
+        row["id"] = sqlite3_column_int(stmt, 0);
+        row["time"] = created ? reinterpret_cast<const char*>(created) : "";
+        row["operation_type"] = op_type ? reinterpret_cast<const char*>(op_type) : "";
+        row["target"] = target ? reinterpret_cast<const char*>(target) : "";
+        row["status"] = st ? reinterpret_cast<const char*>(st) : "";
+        row["duration_ms"] = sqlite3_column_int(stmt, 5);
+        row["ip"] = ip ? reinterpret_cast<const char*>(ip) : "";
+
+        std::string detail_text = detail ? reinterpret_cast<const char*>(detail) : "{}";
+        try {
+            row["detail"] = nlohmann::json::parse(detail_text);
+        } catch (...) {
+            row["detail"] = nlohmann::json::object();
+        }
+
+        out["items"].push_back(std::move(row));
+    }
+    sqlite3_finalize(stmt);
+
+    res.set_content(out.dump(), "application/json; charset=utf-8");
+}
+
+static void get_system_ai_usage_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int limit = std::max(1, std::min(500, get_int_param(req, "limit", 100)));
+    const int offset = std::max(0, get_int_param(req, "offset", 0));
+    const int repo_id = get_int_param(req, "repo_id", 0);
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+
+    const char* sql_all =
+        "SELECT id, created_at, repo_id, repo_full_name, model, prompt_tokens, completion_tokens, "
+        "total_tokens, cost_usd, duration_ms, ip, status, error "
+        "FROM system_ai_usage_logs "
+        "ORDER BY id DESC LIMIT ?1 OFFSET ?2;";
+
+    const char* sql_repo =
+        "SELECT id, created_at, repo_id, repo_full_name, model, prompt_tokens, completion_tokens, "
+        "total_tokens, cost_usd, duration_ms, ip, status, error "
+        "FROM system_ai_usage_logs WHERE repo_id=?1 "
+        "ORDER BY id DESC LIMIT ?2 OFFSET ?3;";
+
+    if (sqlite3_prepare_v2(sdb, repo_id > 0 ? sql_repo : sql_all, -1, &stmt, nullptr) != SQLITE_OK) {
+        res.status = 500;
+        res.set_content(R"({"error":"db prepare failed"})", "application/json; charset=utf-8");
+        return;
+    }
+
+    if (repo_id > 0) {
+        sqlite3_bind_int(stmt, 1, repo_id);
+        sqlite3_bind_int(stmt, 2, limit);
+        sqlite3_bind_int(stmt, 3, offset);
+    } else {
+        sqlite3_bind_int(stmt, 1, limit);
+        sqlite3_bind_int(stmt, 2, offset);
+    }
+
+    nlohmann::json out;
+    out["items"] = nlohmann::json::array();
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* created = sqlite3_column_text(stmt, 1);
+        const unsigned char* repo_name = sqlite3_column_text(stmt, 3);
+        const unsigned char* model = sqlite3_column_text(stmt, 4);
+        const unsigned char* ip = sqlite3_column_text(stmt, 10);
+        const unsigned char* status = sqlite3_column_text(stmt, 11);
+        const unsigned char* error = sqlite3_column_text(stmt, 12);
+
+        nlohmann::json row;
+        row["id"] = sqlite3_column_int(stmt, 0);
+        row["time"] = created ? reinterpret_cast<const char*>(created) : "";
+        row["repo_id"] = sqlite3_column_type(stmt, 2) == SQLITE_NULL ? 0 : sqlite3_column_int(stmt, 2);
+        row["repo"] = repo_name ? reinterpret_cast<const char*>(repo_name) : "";
+        row["model"] = model ? reinterpret_cast<const char*>(model) : "";
+        row["prompt_tokens"] = sqlite3_column_int(stmt, 5);
+        row["completion_tokens"] = sqlite3_column_int(stmt, 6);
+        row["total_tokens"] = sqlite3_column_int(stmt, 7);
+        row["cost_usd"] = sqlite3_column_double(stmt, 8);
+        row["duration_ms"] = sqlite3_column_int(stmt, 9);
+        row["ip"] = ip ? reinterpret_cast<const char*>(ip) : "";
+        row["status"] = status ? reinterpret_cast<const char*>(status) : "";
+        row["error"] = error ? reinterpret_cast<const char*>(error) : "";
+        out["items"].push_back(std::move(row));
+    }
+    sqlite3_finalize(stmt);
+
+    res.set_content(out.dump(), "application/json; charset=utf-8");
+}
+
+static void get_system_log_stats_today_handler(Db& db, const httplib::Request&, httplib::Response& res)
+{
+    sqlite3* sdb = db.handle();
+
+    auto query_single_int = [&](const char* sql) -> int {
+        sqlite3_stmt* stmt = nullptr;
+        int value = 0;
+        if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                value = sqlite3_column_int(stmt, 0);
+            }
+        }
+        if (stmt) sqlite3_finalize(stmt);
+        return value;
+    };
+
+    const int request_count = query_single_int(
+        "SELECT COUNT(*) FROM system_operation_logs WHERE date(created_at, '+8 hours')=date('now', 'localtime');");
+    const int error_count = query_single_int(
+        "SELECT COUNT(*) FROM system_operation_logs WHERE date(created_at, '+8 hours')=date('now', 'localtime') AND status!='ok';");
+    const int ai_call_count = query_single_int(
+        "SELECT COUNT(*) FROM system_ai_usage_logs WHERE date(created_at, '+8 hours')=date('now', 'localtime');");
+
+    nlohmann::json out;
+    out["today_request_count"] = request_count;
+    out["today_error_count"] = error_count;
+    out["today_ai_call_count"] = ai_call_count;
+    res.set_content(out.dump(), "application/json; charset=utf-8");
+}
 // 对外提供一个注册函数，只注册 GET 路由
 void register_get_routes(httplib::Server& app, Db& db)
 {
@@ -973,5 +1159,23 @@ void register_get_routes(httplib::Server& app, Db& db)
             [&db](const httplib::Request& req, httplib::Response& res)
             {
                 get_repo_intro_handler(db, req, res);
+            });
+
+    app.Get("/api/system/logs/operations",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_system_operation_logs_handler(db, req, res);
+            });
+
+    app.Get("/api/system/logs/ai-usage",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_system_ai_usage_handler(db, req, res);
+            });
+
+    app.Get("/api/system/logs/stats/today",
+            [&db](const httplib::Request& req, httplib::Response& res)
+            {
+                get_system_log_stats_today_handler(db, req, res);
             });
 }

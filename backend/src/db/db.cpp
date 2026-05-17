@@ -232,6 +232,38 @@ void Db::init_schema()
     );
     CREATE INDEX IF NOT EXISTS idx_ai_conv_repo ON ai_conversations(repo_id);
 
+    CREATE TABLE IF NOT EXISTS system_operation_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        operation_type TEXT NOT NULL DEFAULT '',
+        target TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'ok',
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        ip TEXT NOT NULL DEFAULT '',
+        detail_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_sys_ops_created ON system_operation_logs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sys_ops_type_status ON system_operation_logs(operation_type, status);
+
+    CREATE TABLE IF NOT EXISTS system_ai_usage_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        repo_id INTEGER,
+        repo_full_name TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        prompt_tokens INTEGER NOT NULL DEFAULT 0,
+        completion_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        ip TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'ok',
+        error TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sys_ai_created ON system_ai_usage_logs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sys_ai_repo_created ON system_ai_usage_logs(repo_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS risk_alert_runs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         repo_id INTEGER NOT NULL,
@@ -316,8 +348,7 @@ void Db::init_schema()
     );
     CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_tool ON quality_issues(repo_id, tool);
     CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_file ON quality_issues(repo_id, file_path);
-    CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_status ON quality_issues(repo_id, status, tool);
-    CREATE INDEX IF NOT EXISTS idx_quality_issues_key ON quality_issues(repo_id, tool, issue_key);
+    CREATE INDEX IF NOT EXISTS idx_quality_issues_repo_tool ON quality_issues(repo_id, tool);
 
     CREATE TABLE IF NOT EXISTS quality_analysis_tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
