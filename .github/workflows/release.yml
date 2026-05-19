@@ -1,0 +1,69 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'           # 推送 v1.0.0 等 tag 时触发
+  workflow_dispatch:    # 也允许手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build:release
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          vcpkgJsonGlob: '**/vcpkg.json'
+
+      - name: Configure CMake
+        working-directory: backend
+        run: |
+          cmake -B build `
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build backend
+        working-directory: backend
+        run: cmake --build build --config Release
+
+      - name: Prepare release package
+        run: |
+          New-Item -ItemType Directory -Force -Path release/se-metrics-platform
+          Copy-Item backend/build/Release/devinsight_backend.exe release/se-metrics-platform/
+          Copy-Item backend/build/Release/*.dll release/se-metrics-platform/ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse backend/frontend-dist release/se-metrics-platform/
+          Copy-Item -Recurse backend/config/config.env.example release/se-metrics-platform/config/
+          New-Item -ItemType Directory -Force -Path release/se-metrics-platform/data/log, release/se-metrics-platform/data/quality, release/se-metrics-platform/data/repo_cache
+          Copy-Item start.bat release/se-metrics-platform/
+          Copy-Item start.sh release/se-metrics-platform/
+          Copy-Item README.md release/se-metrics-platform/
+
+      - name: Create ZIP
+        run: |
+          Compress-Archive -Path release/se-metrics-platform/* -DestinationPath release/se-metrics-platform.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/se-metrics-platform.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -5,3 +5,12 @@ build/
 vcpkg/
 build-codex/
 build-vs/
+frontend-dist/
+backend/frontend-dist/
+
+# 发布版二进制（通过 GitHub Releases 分发）
+*.exe
+*.dll
+*.ilk
+*.pdb
+config/config.env

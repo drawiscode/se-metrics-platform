@@ -1,7 +1,132 @@
-﻿# 基于 AI 驱动的软件工程一体化度量与协作平台  
-基于 AI 驱动的软件工程一体化度量与协作平台  
-目标：帮助团队**快速接手/优化/持续开发**已有项目，通过“数据度量 + AI 分析解读 + 看板闭环任务”提升工程质量与协作效率。
+﻿# 基于 AI 驱动的软件工程一体化度量与协作平台
 
+基于 AI 驱动的软件工程一体化度量与协作平台  
+目标：帮助团队**快速接手/优化/持续开发**已有项目，通过"数据度量 + AI 分析解读 + 看板闭环任务"提升工程质量与协作效率。
+
+---
+
+## 🚀 快速开始（交付版使用）
+
+### 用户只需三步
+
+```
+1. 解压发布包
+2. 编辑 config/config.env，填入你的 API Key
+3. 双击 start.bat（Windows）或 ./start.sh（Linux/Mac）
+4. 浏览器打开 http://localhost:8080
+```
+
+### 发布包结构
+
+```
+se-metrics-platform/
+├── devinsight_backend.exe    # 后端可执行文件
+├── frontend-dist/            # 前端静态文件（已构建）
+├── config/
+│   ├── config.env            # 你的配置文件（需自行创建）
+│   └── config.env.example    # 配置模板
+├── data/                     # 运行时数据（自动创建）
+├── start.bat                 # Windows 一键启动
+├── start.sh                  # Linux/Mac 一键启动
+└── README.md
+```
+
+### 必填配置项
+
+编辑 `config/config.env`，至少填写以下三项：
+
+| 配置项 | 说明 | 获取地址 |
+|--------|------|----------|
+| `GITHUB_TOKEN` | GitHub 个人访问令牌 | https://github.com/settings/tokens |
+| `LLM_API_KEY` | DeepSeek API 密钥 | https://platform.deepseek.com/api_keys |
+| `EMBEDDING_API_KEY` | 阿里云 Embedding API 密钥 | https://dashscope.console.aliyun.com/apiKey |
+
+### 可选依赖
+
+- **cppcheck**：代码质量分析功能需要，[下载地址](https://cppcheck.sourceforge.io/)，安装后在 `config.env` 中配置 `CPPCHECK_BIN` 路径
+
+### 如何更新
+
+1. 从最新 Release 下载新版本
+2. 替换 `devinsight_backend.exe`、`*.dll` 和 `frontend-dist/` 目录
+3. 保留你的 `config/config.env` 和 `data/` 目录（数据不丢失）
+
+---
+
+## 🔧 开发环境配置
+
+### 前置依赖
+
+| 依赖 | 说明 |
+|------|------|
+| Visual Studio 2022 (MSVC) | C++ 编译器 |
+| CMake 3.20+ | 构建系统 |
+| vcpkg | C++ 包管理器 |
+| Node.js 20+ | 前端构建 |
+
+### 安装依赖
+
+```bash
+# vcpkg 安装第三方库
+vcpkg install sqlite3:x64-windows openssl:x64-windows nlohmann-json:x64-windows
+
+# 前端依赖
+cd frontend && npm install
+```
+
+### 开发运行
+
+```bash
+# 终端 1：启动后端（纯 API 模式）
+cd backend/build
+cmake --build .
+./devinsight_backend.exe
+
+# 终端 2：启动前端开发服务器
+cd frontend
+npm run dev
+# 浏览器打开 http://localhost:5173
+```
+
+---
+
+## 📦 发布流程
+
+### 自动发布（推荐）
+
+推送 tag 即可触发 GitHub Actions 自动构建并发布：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+构建完成后在 [Releases](https://github.com/drawiscode/se-metrics-platform/releases) 页面下载 zip。
+
+### 手动打包
+
+```bash
+# 1. 构建后端（Release 模式）
+cd backend
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+
+# 2. 构建前端
+cd ../frontend
+npm run build:release
+
+# 3. 打包（在项目根目录执行）
+cd ..
+mkdir release
+copy backend\build\devinsight_backend.exe release\
+copy backend\build\*.dll release\
+xcopy /E /I frontend-dist release\frontend-dist
+mkdir release\config && copy config\config.env.example release\config\
+xcopy /E /I data release\data
+copy start.bat release\
+copy start.sh release\
+copy README.md release\
+```
 
 ---
 ## 环境配置相关

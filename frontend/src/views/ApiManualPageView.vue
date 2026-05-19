@@ -700,8 +700,8 @@
   }
 
   .code-block {
-    background: #0f172a;
-    color: #e2e8f0;
+    background: #ffffff;
+    color: #2d2e30;
     border-radius: 10px;
     overflow: hidden;
     margin: 12px 0 18px;
@@ -712,7 +712,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: #111827;
+    background: #ECFEFF;
     font-size: 12px;
   }
 
@@ -723,7 +723,7 @@
 
   .copy-btn {
     border: 1px solid #334155;
-    background: #1f2937;
+    background: #1F4F82;
     color: #e2e8f0;
     border-radius: 6px;
     padding: 2px 10px;
