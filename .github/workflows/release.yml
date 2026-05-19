@@ -28,6 +28,13 @@ jobs:
         working-directory: frontend
         run: npm run build:release
 
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: C:/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('backend/vcpkg.json') }}
+
+
       # ========== 安装 C++ 依赖（vcpkg 已预装在 C:/vcpkg）==========
       - name: Bootstrap vcpkg (if needed)
         run: |
@@ -63,8 +70,9 @@ jobs:
           Copy-Item backend/build/Release/*.dll $out/ -ErrorAction SilentlyContinue
           Copy-Item backend/build/*.dll $out/ -ErrorAction SilentlyContinue
 
-          # 前端 + 配置 + 脚本
-          Copy-Item -Recurse frontend-dist $out/
+          # 前端（尝试两个可能的构建输出路径）
+          $frontend = @("frontend-dist", "backend/frontend-dist") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          Copy-Item -Recurse $frontend $out/
           New-Item -ItemType Directory -Force -Path $out/config | Out-Null
           Copy-Item backend/config/config.env.example $out/config/
           New-Item -ItemType Directory -Force -Path $out/data/log, $out/data/quality, $out/data/repo_cache | Out-Null
