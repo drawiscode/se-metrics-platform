@@ -28,12 +28,12 @@ jobs:
         working-directory: frontend
         run: npm run build:release
 
-      # ========== 安装 vcpkg + C++ 依赖 ==========
-      - name: Clone vcpkg
-        run: git clone --depth=1 https://github.com/microsoft/vcpkg.git C:/vcpkg
-
-      - name: Bootstrap vcpkg
-        run: C:/vcpkg/bootstrap-vcpkg.bat
+      # ========== 安装 C++ 依赖（vcpkg 已预装在 C:/vcpkg）==========
+      - name: Bootstrap vcpkg (if needed)
+        run: |
+          if (-not (Test-Path "C:/vcpkg/vcpkg.exe")) {
+            C:/vcpkg/bootstrap-vcpkg.bat
+          }
 
       - name: Install C++ dependencies
         run: C:/vcpkg/vcpkg.exe install sqlite3:x64-windows openssl:x64-windows nlohmann-json:x64-windows
