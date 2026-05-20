@@ -1,10 +1,12 @@
 ﻿#include "routes.h"
 #include "common/util.h"
+#include "common/system_log.h"
 #include "ai/knowledge_base.h"
 #include <sqlite3.h>
 #include "repo_metrics/github_client.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <chrono>
 
 #include "ai/ai_assistant.h"
 static void print_debug_pages(int pages,std::string prefix)
@@ -165,6 +167,7 @@ static void post_repos_handler(Db& db, const httplib::Request& req, httplib::Res
         return;
     }
 
+    res.status = 200;
     res.set_content(
         std::string("{\"ok\":true,\"repo_id\":") + std::to_string(static_cast<int>(rid_ll)) +
         ",\"full_name\":\"" + util::json_escape(full_name) + "\"}",
@@ -1304,6 +1307,7 @@ static void post_repo_sync_handler(Db& db, const httplib::Request& req, httplib:
     if (!snapshot_warn.empty()) warnings.push_back(std::string("snapshot skipped: ") + snapshot_warn);
     if (!warnings.empty()) out["warnings"] = warnings;
 
+    res.status = 200;
     res.set_content(out.dump(), "application/json; charset=utf-8");
 }
 
@@ -1340,6 +1344,7 @@ static void post_repo_sync_commit_files_handler(Db& db, const httplib::Request& 
     std::string out = std::string("{\"ok\":true,\"repo_id\":") + std::to_string(rid) +
                       ",\"limit_commits\":" + std::to_string(limit_commits) +
                       ",\"total_files_processed\":" + std::to_string(total_files) + "}";
+    res.status = 200;
     res.set_content(out, "application/json; charset=utf-8");
 }
 
@@ -1349,18 +1354,26 @@ void register_post_routes(httplib::Server& app, Db& db)
     app.Post("/api/repos",
              [&db](const httplib::Request& req, httplib::Response& res)
              {
-                 post_repos_handler(db, req, res); 
+                 const auto begin = std::chrono::steady_clock::now();
+                 post_repos_handler(db, req, res);
+                 const auto end = std::chrono::steady_clock::now();
+                 const int duration_ms = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+                 const std::string status = (res.status >= 200 && res.status < 300) ? "ok" : "error";
+                 system_log::write_operation(db, "repo.create", "/api/repos", status, duration_ms, req.remote_addr, "{}");
              });
 
     app.Post(R"(/api/repos/(\d+)/sync)",
              [&db](const httplib::Request& req, httplib::Response& res)
              {
+                 const auto begin = std::chrono::steady_clock::now();
                  try
                  {
                      post_repo_sync_handler(db, req, res);
                  }
                  catch (const std::exception& e)
                  {
+                     std::cerr << "[sync][FATAL] repo_id=" << req.matches[1]
+                               << " exception: " << e.what() << "\n";
                      res.status = 500;
                      res.set_content(std::string("{\"error\":\"") +
                                          util::json_escape(e.what()) + "\"}",
@@ -1368,15 +1381,29 @@ void register_post_routes(httplib::Server& app, Db& db)
                  }
                  catch (...)
                  {
+                     std::cerr << "[sync][FATAL] repo_id=" << req.matches[1]
+                               << " unknown exception\n";
                      res.status = 500;
                      res.set_content(R"({"error":"unknown server error"})",
                                      "application/json; charset=utf-8");
                  }
+
+                 if (res.status <= 0) {
+                     res.status = 200;
+                 }
+                // std::cerr << "[sync][FATAL] res.status" << res.status << std::endl;
+
+                 const auto end = std::chrono::steady_clock::now();
+                 const int duration_ms = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+                 const std::string status = (res.status >= 200 && res.status < 300) ? "ok" : "error";
+                 const std::string target = std::string("/api/repos/") + req.matches[1].str() + "/sync";
+                 system_log::write_operation(db, "repo.sync", target, status, duration_ms, req.remote_addr, "{}");
              });
 
     app.Post(R"(/api/repos/(\d+)/sync/commit_files)",
              [&db](const httplib::Request& req, httplib::Response& res)
              {
+                 const auto begin = std::chrono::steady_clock::now();
                  try
                  {
                      post_repo_sync_commit_files_handler(db, req, res);
@@ -1394,6 +1421,12 @@ void register_post_routes(httplib::Server& app, Db& db)
                      res.set_content(R"({"error":"unknown server error"})",
                                      "application/json; charset=utf-8");
                  }
+
+                 const auto end = std::chrono::steady_clock::now();
+                 const int duration_ms = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+                 const std::string status = (res.status >= 200 && res.status < 300) ? "ok" : "error";
+                 const std::string target = std::string("/api/repos/") + req.matches[1].str() + "/sync/commit_files";
+                 system_log::write_operation(db, "repo.sync_commit_files", target, status, duration_ms, req.remote_addr, "{}");
              });
 
 }

@@ -67,7 +67,7 @@
       </div>
 
       <p class="muted" style="margin:6px 0 0;">
-        说明：后端 incremental 会忽律参数
+        说明：后端 incremental 会忽略参数
       </p>
     </div>
 

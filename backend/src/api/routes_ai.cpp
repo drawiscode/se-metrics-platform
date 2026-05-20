@@ -2,17 +2,36 @@
 // 提供知识库构建/检索、AI 问答、对话历史查询接口
 #include "routes.h"
 #include "common/util.h"
+#include "common/system_log.h"
 #include "ai/knowledge_base.h"
 #include "ai/ai_assistant.h"
 
 #include <nlohmann/json.hpp>
 #include <sqlite3.h>
+#include <chrono>
 
 static constexpr const char* kJsonUtf8 = "application/json; charset=utf-8";
 
 static int get_int_param_ai(const httplib::Request& req, const std::string& key, int defv) {
     if (!req.has_param(key)) return defv;
     try { return std::stoi(req.get_param_value(key)); } catch (...) { return defv; }
+}
+
+static std::string get_repo_full_name_ai(Db& db, int repo_id)
+{
+    if (repo_id <= 0) return "";
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT full_name FROM repos WHERE id=?1;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return "";
+    sqlite3_bind_int(stmt, 1, repo_id);
+    std::string out;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* v = sqlite3_column_text(stmt, 0);
+        out = v ? reinterpret_cast<const char*>(v) : "";
+    }
+    sqlite3_finalize(stmt);
+    return out;
 }
 
 // ============================================================
@@ -43,6 +62,7 @@ static void post_knowledge_build_handler(Db& db, const httplib::Request& req, ht
     }
 
     auto result = build_knowledge_index(db, rid);
+    res.status = 200;
     res.set_content(
         "{\"ok\":true,\"repo_id\":" + std::to_string(rid)
         + ",\"result\":" + build_result_to_json(result) + "}",
@@ -66,6 +86,7 @@ static void get_knowledge_search_handler(Db& db, const httplib::Request& req, ht
     }
 
     auto chunks = search_knowledge(db, rid, query, top);
+    res.status = 200;
     res.set_content("{\"items\":" + knowledge_chunks_to_json(chunks) + "}", kJsonUtf8);
 }
 
@@ -77,6 +98,7 @@ static void get_knowledge_search_handler(Db& db, const httplib::Request& req, ht
 // ============================================================
 static void post_ai_ask_handler(Db& db, const httplib::Request& req, httplib::Response& res)
 {
+    const auto begin = std::chrono::steady_clock::now();
     int repo_id = 0;
     std::string question;
 
@@ -100,11 +122,47 @@ static void post_ai_ask_handler(Db& db, const httplib::Request& req, httplib::Re
     if (question.empty()) {
         res.status = 400;
         res.set_content(R"({"error":"缺少 question"})", kJsonUtf8);
+        const auto end = std::chrono::steady_clock::now();
+        const int duration_ms = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+        system_log::write_operation(db, "ai.ask", "/api/ai/ask", "error", duration_ms, req.remote_addr,
+                                    R"({"reason":"missing question"})");
         return;
     }
 
     auto answer = ask_question(db, repo_id, question);
+    res.status = 200;
     res.set_content(ai_answer_to_json(answer), kJsonUtf8);
+
+    const auto end = std::chrono::steady_clock::now();
+    const int duration_ms = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
+    const std::string status = answer.success ? "ok" : "error";
+    const std::string repo_full_name = get_repo_full_name_ai(db, repo_id);
+
+    system_log::write_operation(
+        db,
+        "ai.ask",
+        "/api/ai/ask",
+        status,
+        duration_ms,
+        req.remote_addr,
+        std::string("{\"repo_id\":") + std::to_string(repo_id) +
+            ",\"model\":\"" + util::json_escape(answer.model) + "\"}"
+    );
+
+    system_log::write_ai_usage(
+        db,
+        repo_id,
+        repo_full_name,
+        answer.model,
+        answer.prompt_tokens,
+        answer.completion_tokens,
+        answer.total_tokens,
+        answer.cost_usd,
+        answer.duration_ms > 0 ? answer.duration_ms : duration_ms,
+        req.remote_addr,
+        status,
+        answer.error
+    );
 }
 
 // ============================================================
@@ -166,6 +224,7 @@ static void get_ai_conversations_handler(Db& db, const httplib::Request& req, ht
     out += "]}";
     sqlite3_finalize(stmt);
 
+    res.status = 200;
     res.set_content(out, kJsonUtf8);
 }
 
@@ -217,6 +276,7 @@ static void get_ai_conversation_detail_handler(Db& db, const httplib::Request& r
     out += "}";
     sqlite3_finalize(stmt);
 
+    res.status = 200;
     res.set_content(out, kJsonUtf8);
 }
 

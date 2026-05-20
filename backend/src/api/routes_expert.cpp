@@ -26,6 +26,7 @@ static void get_experts_handler(Db& db, const httplib::Request& req, httplib::Re
     auto experts = compute_expert_pagerank(db, rid, top);
     std::string out = "{\"repo_id\":" + std::to_string(rid)
                     + ",\"items\":" + experts_to_json(experts) + "}";
+    res.status = 200;
     res.set_content(out, kJson);
 }
 
@@ -52,6 +53,7 @@ static void get_module_experts_handler(Db& db, const httplib::Request& req, http
     std::string out = "{\"repo_id\":" + std::to_string(rid)
                     + ",\"module\":\"" + util::json_escape(dir) + "\""
                     + ",\"items\":" + module_experts_to_json(experts) + "}";
+    res.status = 200;
     res.set_content(out, kJson);
 }
 
@@ -65,6 +67,7 @@ static void post_experts_build_handler(Db& db, const httplib::Request& req, http
     int count = build_expert_knowledge(db, rid);
     std::string out = "{\"ok\":true,\"repo_id\":" + std::to_string(rid)
                     + ",\"knowledge_chunks_written\":" + std::to_string(count) + "}";
+    res.status = 200;
     res.set_content(out, kJson);
 }
 

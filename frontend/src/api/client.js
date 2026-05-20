@@ -149,4 +149,53 @@ export async function apiDelete(path, options = {}) {
   return text ? JSON.parse(text) : {}
 }
 
+export async function apiRequest(method, path, body = undefined, options = {}) {
+  const normalizedMethod = String(method || 'GET').toUpperCase()
+  const headers = { ...(options.headers || {}) }
+  let fetchBody = undefined
+
+  if (body !== undefined && normalizedMethod !== 'GET') {
+    if (!headers['Content-Type'] && !headers['content-type']) {
+      headers['Content-Type'] = 'application/json'
+    }
+
+    if (
+      typeof body === 'string' ||
+      body instanceof FormData ||
+      body instanceof Blob ||
+      body instanceof ArrayBuffer
+    ) {
+      fetchBody = body
+    } else {
+      fetchBody = JSON.stringify(body)
+    }
+  }
+
+  const res = await fetch(path, {
+    method: normalizedMethod,
+    headers,
+    body: fetchBody,
+    ...options,
+  })
+
+  const text = await readTextSafe(res)
+  if (!res.ok) {
+    console.error(`API ${normalizedMethod} ${path} failed with status ${res.status}:`, text)
+    throw new ApiError(res.status, `${normalizedMethod} ${path} failed`, text)
+  }
+
+  if (!text) {
+    return { status: res.status, data: {}, text: '' }
+  }
+
+  let data = text
+  try {
+    data = JSON.parse(text)
+  } catch {
+    data = text
+  }
+
+  return { status: res.status, data, text }
+}
+
 

@@ -7,6 +7,10 @@ import TasksView from './views/TasksView.vue'
 import WeeklyReportsView from './views/WeeklyReportsView.vue' 
 import ExpertsView from './views/ExpertsView.vue'
 import QualityView from './views/QualityView.vue'
+import SystemLogsView from './views/SystemLogsView.vue'
+import ApiConsoleView from './views/ApiConsoleView.vue'
+import ApiManualView from './views/ApiManualView.vue'
+import ApiManualPageView from './views/ApiManualPageView.vue'
 
 import AiView from './views/AiView.vue'
 import AiConversationDetailView from './views/AiConversationDetailView.vue'
@@ -23,6 +27,16 @@ const router = createRouter({
     { path: '/repos/:id/quality', component: QualityView, props: true },
     { path: '/ai', component: AiView },
     { path: '/ai/conversations/:id', component: AiConversationDetailView, props: true },
+    { path: '/system-logs', component: SystemLogsView },
+    { path: '/api-console', component: ApiConsoleView },
+    {
+      path: '/api-manual',
+      component: ApiManualView,
+      children: [
+        { path: '', redirect: '/api-manual/console/overview' },
+        { path: ':section/:page', component: ApiManualPageView },
+      ],
+    },
   ],
 })
 

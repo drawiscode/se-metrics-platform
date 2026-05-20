@@ -1,0 +1,95 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # ========== 前端构建 ==========
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build:release
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: C:/vcpkg/installed
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('backend/vcpkg.json') }}
+
+
+      # ========== 安装 C++ 依赖（vcpkg 已预装在 C:/vcpkg）==========
+      - name: Bootstrap vcpkg (if needed)
+        run: |
+          if (-not (Test-Path "C:/vcpkg/vcpkg.exe")) {
+            C:/vcpkg/bootstrap-vcpkg.bat
+          }
+
+      - name: Install C++ dependencies
+        run: C:/vcpkg/vcpkg.exe install sqlite3:x64-windows openssl:x64-windows nlohmann-json:x64-windows
+
+      # ========== 后端构建 ==========
+      - name: Configure CMake
+        working-directory: backend
+        run: |
+          cmake -B build `
+            -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build backend
+        working-directory: backend
+        run: cmake --build build --config Release
+
+      # ========== 打包 ==========
+      - name: Prepare release package
+        shell: pwsh
+        run: |
+          $out = "release/se-metrics-platform"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          # 后端 exe + dll
+          $exe = @("backend/build/Release/devinsight_backend.exe", "backend/build/devinsight_backend.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          Copy-Item $exe $out/
+          Copy-Item backend/build/Release/*.dll $out/ -ErrorAction SilentlyContinue
+          Copy-Item backend/build/*.dll $out/ -ErrorAction SilentlyContinue
+
+          # 前端（尝试两个可能的构建输出路径）
+          $frontend = @("frontend-dist", "backend/frontend-dist") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          Copy-Item -Recurse $frontend $out/
+          New-Item -ItemType Directory -Force -Path $out/config | Out-Null
+          Copy-Item backend/config/config.env.example $out/config/
+          New-Item -ItemType Directory -Force -Path $out/data/log, $out/data/quality, $out/data/repo_cache | Out-Null
+          Copy-Item start.bat $out/
+          Copy-Item start.sh $out/
+          Copy-Item README.md $out/
+
+          Write-Output "Package prepared: $out"
+
+      - name: Create ZIP
+        shell: pwsh
+        run: Compress-Archive -Path release/se-metrics-platform/* -DestinationPath release/se-metrics-platform.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/se-metrics-platform.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
