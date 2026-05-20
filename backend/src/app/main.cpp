@@ -60,6 +60,11 @@ int main()
 {
     try
     {
+        // Windows 下设置控制台输出编码为 UTF-8
+#ifdef _WIN32
+        system("chcp 65001 > nul");
+#endif
+
         load_env_best_effort();
 
         const std::string db_path = util::get_env("DEVINSIGHT_DB", "data/devinsight.db");
@@ -71,10 +76,10 @@ int main()
 
         httplib::Server app;
 
-        // 1. 先注册 API 路由（httplib handler 优先级高于 mount）
+        // 先注册 API 路由（httplib handler 优先级高于 mount）
         register_routes(app, db);
 
-        // 2. 托管前端静态文件（发布版 frontend-dist 目录）
+        // 托管前端静态文件（发布版 frontend-dist 目录）
         {
             namespace fs = std::filesystem;
             // 探测 frontend-dist 目录的路径
