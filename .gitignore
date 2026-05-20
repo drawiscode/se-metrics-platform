@@ -7,6 +7,7 @@ build-codex/
 build-vs/
 frontend-dist/
 backend/frontend-dist/
+tools/
 
 # 发布版二进制（通过 GitHub Releases 分发）
 *.exe

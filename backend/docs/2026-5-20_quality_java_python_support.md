@@ -266,6 +266,89 @@ QUALITY_ALL_TOOLS=cppcheck,clang-tidy,cpplint,flawfinder,pylint,checkstyle
 
 修改 `config.env` 后需要重启后端进程。
 
+## 5.1 本机环境配置记录
+
+本机已按便携式方式配置 Python/Java 分析工具，不依赖系统级 Java PATH。
+
+### pylint
+
+本机已存在 `pylint`：
+
+```text
+E:/Anaconda/Scripts/pylint.exe
+```
+
+验证结果：
+
+```powershell
+E:\Anaconda\Scripts\pylint.exe --version
+```
+
+输出版本：
+
+```text
+pylint 3.3.5
+astroid 3.3.8
+Python 3.13.5
+```
+
+### Checkstyle
+
+本机没有系统级 `java` 和 `checkstyle`，因此下载到项目本地 `tools/` 目录：
+
+```text
+tools/java/jdk-21.0.11+10-jre/
+tools/checkstyle/checkstyle-13.3.0-all.jar
+tools/checkstyle/checkstyle.cmd
+```
+
+`checkstyle.cmd` 是后端调用的包装脚本，内部使用项目本地 JRE 执行 Checkstyle jar：
+
+```bat
+@echo off
+set "SCRIPT_DIR=%~dp0"
+"%SCRIPT_DIR%..\java\jdk-21.0.11+10-jre\bin\java.exe" -jar "%SCRIPT_DIR%checkstyle-13.3.0-all.jar" %*
+```
+
+验证命令：
+
+```powershell
+tools\java\jdk-21.0.11+10-jre\bin\java.exe -version
+tools\checkstyle\checkstyle.cmd --version
+```
+
+验证结果：
+
+```text
+openjdk version "21.0.11" 2026-04-21 LTS
+Checkstyle version: 13.3.0
+```
+
+### config.env 当前配置
+
+`backend/config/config.env` 当前已配置为：
+
+```env
+PYLINT_BIN=E:/Anaconda/Scripts/pylint.exe
+CHECKSTYLE_BIN=E:/Code/se-metrics-platform/tools/checkstyle/checkstyle.cmd
+
+QUALITY_ALL_TOOLS=cppcheck,clang-tidy,cpplint,flawfinder,pylint,checkstyle
+
+PYLINT_ARGS=--score=n
+CHECKSTYLE_CONFIG=/google_checks.xml
+CHECKSTYLE_ARGS=
+```
+
+### Git 忽略策略
+
+便携式 JRE 和 Checkstyle jar 体积较大，不应提交到仓库。因此 `.gitignore` 已新增：
+
+```gitignore
+tools/
+```
+
+需要在新机器上重新准备 `tools/` 目录，或改用系统已安装的 Java/Checkstyle 路径。
+
 ## 6. API 使用
 
 单独分析 Python：
@@ -355,4 +438,3 @@ npm --prefix frontend run build
 3. 选择 `tools=all` 时是否运行新工具取决于 `QUALITY_ALL_TOOLS`。
 4. Python/Java 工具没有新增数据库字段，历史数据兼容。
 5. `max_files` 会分别作用于对应语言的文件收集结果；多工具联合运行时，每个工具按自己的语言重新收集文件。
-
