@@ -1,6 +1,6 @@
 # 2026-05-15 质量分析子系统工具链使用与测试说明
 
-本文档说明 2.2 代码质量分析子系统在扩展 `clang-tidy`、`cpplint`、`flawfinder` 后的配置、使用方式和测试方法。
+本文档说明 2.2 代码质量分析子系统在扩展 `clang-tidy`、`cpplint`、`flawfinder`、`pylint`、`checkstyle` 后的配置、使用方式和测试方法。
 
 ## 1. 当前支持的分析工具
 
@@ -10,6 +10,8 @@
 | `clang-tidy` | 基于 Clang AST 的现代 C/C++ 诊断 | stdout/stderr 日志 | 优先使用 `compile_commands.json`，缺失时可生成 fallback compile database |
 | `cpplint` | Google C++ 风格检查 | stdout/stderr 日志 | 偏代码规范，噪声较多，建议按项目配置过滤规则 |
 | `flawfinder` | C/C++ 安全风险函数扫描 | stdout/stderr 日志 | 偏安全风险，适合作为安全辅助扫描 |
+| `pylint` | Python 语法、风格与潜在缺陷检查 | JSON | 解析 `--output-format=json` 输出 |
+| `checkstyle` | Java 代码规范检查 | XML | 默认使用 `/google_checks.xml`，可通过配置替换 |
 
 所有工具的诊断都会统一转换为 `QualityIssue`，落库到：
 
@@ -38,6 +40,8 @@
 | `information` | 0.1 |
 | `cpplint` 工具权重 | 0.08 |
 | `flawfinder` 工具权重 | 0.75 |
+| `pylint` 工具权重 | 0.5 |
+| `checkstyle` 工具权重 | 0.25 |
 | 其他工具权重 | 1.0 |
 
 单次运行记录使用本次 `quality_run_issues` 和本次 `lines_analyzed` 计算分数；仓库汇总页使用当前 active issue 计算分数。这样单独运行 `clang-tidy` 时，不会被历史 `cpplint` 或 `flawfinder` 问题拖低到 0 分。
@@ -74,6 +78,8 @@ CPPCHECK_BIN="C:/Program Files/Cppcheck/cppcheck.exe"
 CLANG_TIDY_BIN=~/Microsoft Visual Studio/2026/Community/VC/Tools/Llvm/x64/bin/clang-tidy.exe
 CPPLINT_BIN=~/Python/Python313/Scripts/cpplint.exe
 FLAWFINDER_BIN=~/Python/Python313/Scripts/flawfinder.exe
+PYLINT_BIN=pylint
+CHECKSTYLE_BIN=checkstyle
 
 QUALITY_ALL_TOOLS=cppcheck,clang-tidy
 
@@ -84,6 +90,9 @@ CLANG_TIDY_ARGS=
 
 CPPLINT_ARGS=
 FLAWFINDER_ARGS=--quiet
+PYLINT_ARGS=--score=n
+CHECKSTYLE_CONFIG=/google_checks.xml
+CHECKSTYLE_ARGS=
 
 QUALITY_OUTPUT_DIR=~/se-metrics-platform/data/quality
 REPO_CLONE_ROOT=~/se-metrics-platform/data/repo_cache
@@ -92,11 +101,11 @@ REPO_CLONE_ROOT=~/se-metrics-platform/data/repo_cache
 说明：
 
 - `QUALITY_ALL_TOOLS` 控制前端选择“全部工具”或 API 传 `tools=all` 时实际展开的工具列表。
-- 默认保持 `cppcheck,clang-tidy`，没有把 `cpplint`、`flawfinder` 放入默认 all，是为了避免风格/安全辅助扫描的噪声影响常规质量分。
+- 默认保持 `cppcheck,clang-tidy`，没有把 `cpplint`、`flawfinder`、`pylint`、`checkstyle` 放入默认 all，是为了避免未安装的可选工具或风格类扫描影响常规质量分。
 - 若需要全量工具一起运行，可改为：
 
 ```env
-QUALITY_ALL_TOOLS=cppcheck,clang-tidy,cpplint,flawfinder
+QUALITY_ALL_TOOLS=cppcheck,clang-tidy,cpplint,flawfinder,pylint,checkstyle
 ```
 
 ## 4. clang-tidy 编译数据库策略
@@ -141,6 +150,10 @@ clang-tidy
 clang_tidy
 cpplint
 flawfinder
+pylint
+python
+checkstyle
+java
 all
 ```
 
@@ -149,7 +162,7 @@ all
 ```powershell
 Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/repos/$RepoId/quality/analyze" `
   -ContentType "application/json" `
-  -Body '{"tools":"cppcheck,clang-tidy,cpplint,flawfinder","ref":"main","mode":"full","max_files":200}'
+  -Body '{"tools":"cppcheck,clang-tidy,cpplint,flawfinder,pylint,checkstyle","ref":"main","mode":"full","max_files":200}'
 ```
 
 ### 5.3 查询问题列表
@@ -158,6 +171,8 @@ Invoke-RestMethod -Method POST -Uri "$BaseUrl/api/repos/$RepoId/quality/analyze"
 Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/repos/$RepoId/quality/issues?tool=clang-tidy&status=active&limit=100"
 Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/repos/$RepoId/quality/issues?tool=cpplint&status=active&limit=100"
 Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/repos/$RepoId/quality/issues?tool=flawfinder&status=active&limit=100"
+Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/repos/$RepoId/quality/issues?tool=pylint&status=active&limit=100"
+Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/repos/$RepoId/quality/issues?tool=checkstyle&status=active&limit=100"
 ```
 
 ### 5.4 查询评分汇总
@@ -194,7 +209,7 @@ Invoke-RestMethod -Method GET -Uri "$BaseUrl/api/repos/$RepoId/quality/runs?limi
 
 操作步骤：
 
-1. 在工具下拉框选择 `cppcheck`、`clang-tidy`、`cpplint`、`flawfinder` 或 `全部工具`。
+1. 在工具下拉框选择 `cppcheck`、`clang-tidy`、`cpplint`、`flawfinder`、`pylint`、`checkstyle` 或 `全部工具`。
 2. 选择 `全量模式` 或 `热点模式`。
 3. 设置文件上限，建议初次测试使用 `50` 到 `200`。
 4. 点击“运行分析”。
@@ -262,12 +277,12 @@ CPPLINT_ARGS=--filter=-legal/copyright,-whitespace/line_length
 
 `flawfinder` 是基于危险函数名称的启发式扫描，命中不等于漏洞。建议把结果作为安全 review 输入，确认后可在平台中标记为 `ignored` 或 `false_positive`。
 
-### 8.4 all 没有运行 cpplint/flawfinder
+### 8.4 all 没有运行可选工具
 
 这是当前默认配置。需要修改：
 
 ```env
-QUALITY_ALL_TOOLS=cppcheck,clang-tidy,cpplint,flawfinder
+QUALITY_ALL_TOOLS=cppcheck,clang-tidy,cpplint,flawfinder,pylint,checkstyle
 ```
 
 修改 `config.env` 后需要重启后端进程。

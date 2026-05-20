@@ -54,6 +54,8 @@
           <option value="clang-tidy">clang-tidy</option>
           <option value="cpplint">cpplint</option>
           <option value="flawfinder">flawfinder</option>
+          <option value="pylint">pylint</option>
+          <option value="checkstyle">checkstyle</option>
           <option value="all">全部工具</option>
         </select>
         <select v-model="analysisMode">
@@ -93,6 +95,8 @@
           <option value="clang-tidy">clang-tidy</option>
           <option value="cpplint">cpplint</option>
           <option value="flawfinder">flawfinder</option>
+          <option value="pylint">pylint</option>
+          <option value="checkstyle">checkstyle</option>
         </select>
         <select v-model="issueFilter.severity" @change="loadIssues()">
           <option value="">全部等级</option>

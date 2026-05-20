@@ -40,6 +40,8 @@ double tool_weight(const std::string& tool)
     const std::string t = to_lower(util::trim(tool));
     if (t == "cpplint") return 0.08;
     if (t == "flawfinder") return 0.75;
+    if (t == "pylint") return 0.5;
+    if (t == "checkstyle") return 0.25;
     return 1.0;
 }
 

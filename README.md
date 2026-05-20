@@ -17,6 +17,10 @@ LLM_MODEL 对应上面你所使用的大模型的【官方名称】
 
 CPPCHECK_BIN 后端进行质量分析的 cppcheck 的 bin 路径
 
+PYLINT_BIN 后端进行 Python 质量分析的 pylint 路径
+
+CHECKSTYLE_BIN 后端进行 Java 质量分析的 checkstyle 路径
+
 QUALITY_OUTPUT_DIR 质量分析结果输出目录
 
 REPO_CLONE_ROOT 扒取 github 仓库代码到本地的目录
@@ -162,12 +166,12 @@ sqlite3 不支持 mingw，建议使用 MSVC 进行编译。
 目标：回答“代码是否在变差？主要问题集中在哪些模块？是否出现质量突增？”
 
 ### (1) 分析任务管理(Task-based)
-- 创建分析任务:选择仓库、分支、工具集(clang-tidy/cppcheck)、配置参数
+- 创建分析任务:选择仓库、分支、工具集(cppcheck/clang-tidy/cpplint/flawfinder/pylint/checkstyle)、配置参数
 - 任务状态机:Pending / Running / Finished / Failed
 - 定时分析(每周/每次 release 后触发，可选)
 
 ### (2) 外部工具调用与结果解析
-- 运行 clang-tidy / cppcheck(命令行)
+- 运行 cppcheck / clang-tidy / cpplint / flawfinder / pylint / checkstyle(命令行)
 - 解析输出(JSON/XML/文本转结构化)
 - 落库:问题实例(文件、行号、规则ID、严重等级、描述、首次出现时间)
 

@@ -3,6 +3,7 @@
 #include "common/util.h"
 #include "db/db.h"
 
+#include <nlohmann/json.hpp>
 #include <sqlite3.h>
 #include <filesystem>
 #include <fstream>
@@ -168,6 +169,16 @@ static bool is_cpp_translation_unit(const fs::path& p)
     return ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx";
 }
 
+static bool is_python_source(const fs::path& p)
+{
+    return to_lower(p.extension().string()) == ".py";
+}
+
+static bool is_java_source(const fs::path& p)
+{
+    return to_lower(p.extension().string()) == ".java";
+}
+
 static bool is_quality_ignored_path(const std::string& rel_path);
 
 static bool clone_or_pull_repo(const fs::path& repo_dir,
@@ -219,7 +230,10 @@ static bool ensure_repo_checkout(int repo_id,
     return clone_or_pull_repo(repo_dir, full_name, ref, err);
 }
 
-static std::vector<fs::path> collect_cpp_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+static std::vector<fs::path> collect_source_files(const fs::path& repo_dir,
+                                                  bool hot_mode,
+                                                  int max_files,
+                                                  bool (*is_source)(const fs::path&))
 {
     std::vector<fs::path> files;
     for (auto it = fs::recursive_directory_iterator(repo_dir); it != fs::recursive_directory_iterator(); ++it) {
@@ -229,7 +243,7 @@ static std::vector<fs::path> collect_cpp_files(const fs::path& repo_dir, bool ho
             continue;
         }
         if (!it->is_regular_file()) continue;
-        if (!is_cpp_source(p)) continue;
+        if (!is_source(p)) continue;
 
         std::string rel = fs::relative(p, repo_dir).generic_string();
         if (rel.empty()) continue;
@@ -241,6 +255,21 @@ static std::vector<fs::path> collect_cpp_files(const fs::path& repo_dir, bool ho
     }
     std::sort(files.begin(), files.end());
     return files;
+}
+
+static std::vector<fs::path> collect_cpp_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+{
+    return collect_source_files(repo_dir, hot_mode, max_files, is_cpp_source);
+}
+
+static std::vector<fs::path> collect_python_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+{
+    return collect_source_files(repo_dir, hot_mode, max_files, is_python_source);
+}
+
+static std::vector<fs::path> collect_java_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+{
+    return collect_source_files(repo_dir, hot_mode, max_files, is_java_source);
 }
 
 static bool path_matches_pattern(const std::string& rel, const std::string& raw_pattern)
@@ -325,6 +354,8 @@ static std::string canonical_tool_name(std::string tool)
     if (tool == "clang_tidy") return "clang-tidy";
     if (tool == "cpp-lint") return "cpplint";
     if (tool == "flaw-finder" || tool == "flaw_finder") return "flawfinder";
+    if (tool == "python" || tool == "py-lint" || tool == "py_lint") return "pylint";
+    if (tool == "java" || tool == "java-checkstyle" || tool == "java_checkstyle") return "checkstyle";
     return tool;
 }
 
@@ -605,6 +636,99 @@ static std::vector<QualityIssue> parse_flawfinder_output(const std::string& outp
             issue.file_path = to_relative_or_full(repo_dir, util::trim(issue.file_path));
             issues.push_back(std::move(issue));
         }
+    }
+    return issues;
+}
+
+static std::string pylint_severity(const std::string& type)
+{
+    const std::string t = to_lower(util::trim(type));
+    if (t == "fatal" || t == "error") return "error";
+    if (t == "warning") return "warning";
+    if (t == "convention" || t == "refactor") return "style";
+    if (t == "information" || t == "info") return "information";
+    return t.empty() ? "warning" : t;
+}
+
+static std::vector<QualityIssue> parse_pylint_json(const std::string& output, const fs::path& repo_dir)
+{
+    std::vector<QualityIssue> issues;
+    try {
+        auto json = nlohmann::json::parse(output);
+        if (!json.is_array()) return issues;
+
+        for (const auto& item : json) {
+            if (!item.is_object()) continue;
+
+            QualityIssue issue;
+            issue.file_path = item.value("path", "");
+            if (issue.file_path.empty()) issue.file_path = item.value("abspath", "");
+            issue.file_path = to_relative_or_full(repo_dir, util::trim(issue.file_path));
+            issue.line = item.value("line", 0);
+            issue.column = item.value("column", 0);
+            if (issue.column > 0) ++issue.column;
+            std::string msg_id = item.value("message-id", "");
+            std::string symbol = item.value("symbol", "");
+            issue.rule_id = msg_id.empty() ? symbol : (symbol.empty() ? msg_id : msg_id + "/" + symbol);
+            issue.severity = pylint_severity(item.value("type", ""));
+            issue.message = item.value("message", "");
+
+            if (!issue.file_path.empty()) issues.push_back(std::move(issue));
+        }
+    } catch (const std::exception&) {
+        return {};
+    }
+    return issues;
+}
+
+static std::string checkstyle_rule_id(std::string source)
+{
+    source = util::trim(source);
+    if (source.empty()) return "checkstyle";
+    const size_t pos = source.find_last_of('.');
+    return pos == std::string::npos ? source : source.substr(pos + 1);
+}
+
+static std::vector<QualityIssue> parse_checkstyle_xml(const std::string& xml, const fs::path& repo_dir)
+{
+    std::vector<QualityIssue> issues;
+    size_t pos = 0;
+    while (true) {
+        size_t file_start = xml.find("<file ", pos);
+        if (file_start == std::string::npos) break;
+        size_t file_tag_end = xml.find('>', file_start);
+        if (file_tag_end == std::string::npos) break;
+        size_t file_end = xml.find("</file>", file_tag_end);
+        if (file_end == std::string::npos) break;
+
+        std::string file_tag = xml.substr(file_start, file_tag_end - file_start + 1);
+        std::string file_path = to_relative_or_full(repo_dir, get_attr(file_tag, "name"));
+        std::string block = xml.substr(file_tag_end + 1, file_end - file_tag_end - 1);
+
+        size_t err_pos = 0;
+        while (true) {
+            size_t err_start = block.find("<error ", err_pos);
+            if (err_start == std::string::npos) break;
+            size_t err_tag_end = block.find('>', err_start);
+            if (err_tag_end == std::string::npos) break;
+
+            std::string err_tag = block.substr(err_start, err_tag_end - err_start + 1);
+            QualityIssue issue;
+            issue.file_path = file_path;
+            const std::string line = get_attr(err_tag, "line");
+            const std::string col = get_attr(err_tag, "column");
+            if (!line.empty()) issue.line = std::atoi(line.c_str());
+            if (!col.empty()) issue.column = std::atoi(col.c_str());
+            issue.rule_id = checkstyle_rule_id(get_attr(err_tag, "source"));
+            issue.severity = get_attr(err_tag, "severity");
+            if (to_lower(issue.severity) == "info") issue.severity = "information";
+            issue.message = get_attr(err_tag, "message");
+
+            if (!issue.file_path.empty()) issues.push_back(std::move(issue));
+            err_pos = err_tag_end + 1;
+        }
+
+        pos = file_end + 7;
     }
     return issues;
 }
@@ -1307,6 +1431,131 @@ static ToolExecutionResult execute_flawfinder(const fs::path& repo_dir,
     return result;
 }
 
+static ToolExecutionResult execute_pylint(const fs::path& repo_dir,
+                                          const std::vector<fs::path>& files,
+                                          int repo_id)
+{
+    ToolExecutionResult result;
+    result.tool = "pylint";
+    result.analyzed_files = static_cast<int>(files.size());
+    result.lines_analyzed = count_lines(files);
+
+    if (files.empty()) {
+        result.error = "no Python source files to analyze";
+        return result;
+    }
+
+    std::string out_dir = ensure_output_dir();
+    std::string stamp = make_timestamp();
+    fs::path out_file = fs::path(out_dir) / ("pylint_" + std::to_string(repo_id) + "_" + stamp + ".log");
+    result.output_file = out_file.string();
+
+    std::string bin = util::trim(util::get_env("PYLINT_BIN", "pylint"));
+    std::string extra = util::trim(util::get_env("PYLINT_ARGS", "--score=n"));
+    std::vector<std::string> failed_samples;
+
+    for (const auto& f : files) {
+        std::ostringstream cmd;
+        cmd << quote_path(bin)
+            << " --output-format=json";
+        if (!extra.empty()) cmd << " " << extra;
+        cmd << " " << quote_path(f.string()) << " 2>&1";
+
+        std::string cmd_str = cmd.str();
+#ifdef _WIN32
+        cmd_str = "cmd /c \"" + cmd_str + "\"";
+#endif
+        CommandCaptureResult captured = run_cmd_capture_result(cmd_str);
+        append_text_file(out_file, "### " + f.generic_string() + "\n" + captured.output + "\n\n");
+        auto parsed = parse_pylint_json(captured.output, repo_dir);
+        if (captured.exit_code != 0 && parsed.empty()) {
+            if (output_looks_like_missing_tool(captured.output)) {
+                result.error = "pylint command failed: " + first_non_empty_line(captured.output);
+                return result;
+            }
+            if (failed_samples.size() < 3) failed_samples.push_back(f.generic_string());
+        }
+        result.issues.insert(result.issues.end(),
+                             std::make_move_iterator(parsed.begin()),
+                             std::make_move_iterator(parsed.end()));
+    }
+
+    normalize_and_filter_issues(result.issues);
+    deduplicate_issues(result.tool, result.issues);
+    if (result.issues.empty() && !failed_samples.empty()) {
+        result.error = "pylint failed for " + std::to_string(failed_samples.size())
+            + " file(s); see " + out_file.string();
+        return result;
+    }
+    for (const auto& issue : result.issues) {
+        result.severity_stats[issue.severity]++;
+    }
+    return result;
+}
+
+static ToolExecutionResult execute_checkstyle(const fs::path& repo_dir,
+                                              const std::vector<fs::path>& files,
+                                              int repo_id)
+{
+    ToolExecutionResult result;
+    result.tool = "checkstyle";
+    result.analyzed_files = static_cast<int>(files.size());
+    result.lines_analyzed = count_lines(files);
+
+    if (files.empty()) {
+        result.error = "no Java source files to analyze";
+        return result;
+    }
+
+    std::string out_dir = ensure_output_dir();
+    std::string stamp = make_timestamp();
+    fs::path out_file = fs::path(out_dir) / ("checkstyle_" + std::to_string(repo_id) + "_" + stamp + ".xml");
+    result.output_file = out_file.string();
+
+    std::string bin = util::trim(util::get_env("CHECKSTYLE_BIN", "checkstyle"));
+    std::string config = util::trim(util::get_env("CHECKSTYLE_CONFIG", "/google_checks.xml"));
+    std::string extra = util::trim(util::get_env("CHECKSTYLE_ARGS", ""));
+    std::vector<std::string> failed_samples;
+
+    for (const auto& f : files) {
+        std::ostringstream cmd;
+        cmd << quote_path(bin)
+            << " -f xml -c " << quote_path(config);
+        if (!extra.empty()) cmd << " " << extra;
+        cmd << " " << quote_path(f.string()) << " 2>&1";
+
+        std::string cmd_str = cmd.str();
+#ifdef _WIN32
+        cmd_str = "cmd /c \"" + cmd_str + "\"";
+#endif
+        CommandCaptureResult captured = run_cmd_capture_result(cmd_str);
+        append_text_file(out_file, "### " + f.generic_string() + "\n" + captured.output + "\n\n");
+        auto parsed = parse_checkstyle_xml(captured.output, repo_dir);
+        if (captured.exit_code != 0 && parsed.empty()) {
+            if (output_looks_like_missing_tool(captured.output)) {
+                result.error = "checkstyle command failed: " + first_non_empty_line(captured.output);
+                return result;
+            }
+            if (failed_samples.size() < 3) failed_samples.push_back(f.generic_string());
+        }
+        result.issues.insert(result.issues.end(),
+                             std::make_move_iterator(parsed.begin()),
+                             std::make_move_iterator(parsed.end()));
+    }
+
+    normalize_and_filter_issues(result.issues);
+    deduplicate_issues(result.tool, result.issues);
+    if (result.issues.empty() && !failed_samples.empty()) {
+        result.error = "checkstyle failed for " + std::to_string(failed_samples.size())
+            + " file(s); see " + out_file.string();
+        return result;
+    }
+    for (const auto& issue : result.issues) {
+        result.severity_stats[issue.severity]++;
+    }
+    return result;
+}
+
 static void merge_tool_result(QualityAnalysisResult& aggregate,
                               Db& db,
                               int repo_id,
@@ -1452,28 +1701,43 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
     }
 
     const bool hot_mode = (to_lower(mode) == "hot");
-    auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
 
     for (const auto& raw_tool : tool_names) {
         std::string tool_lower = canonical_tool_name(raw_tool);
         if (tool_lower == "cppcheck") {
+            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
             ToolExecutionResult cppcheck = execute_cppcheck(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, cppcheck);
             continue;
         }
         if (tool_lower == "clang-tidy") {
+            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
             ToolExecutionResult clang_tidy = execute_clang_tidy(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, clang_tidy);
             continue;
         }
         if (tool_lower == "cpplint") {
+            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
             ToolExecutionResult cpplint = execute_cpplint(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, cpplint);
             continue;
         }
         if (tool_lower == "flawfinder") {
+            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
             ToolExecutionResult flawfinder = execute_flawfinder(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, flawfinder);
+            continue;
+        }
+        if (tool_lower == "pylint") {
+            auto files = collect_python_files(repo_dir, hot_mode, max_files);
+            ToolExecutionResult pylint = execute_pylint(repo_dir, files, repo_id);
+            merge_tool_result(result, db, repo_id, run_id, pylint);
+            continue;
+        }
+        if (tool_lower == "checkstyle") {
+            auto files = collect_java_files(repo_dir, hot_mode, max_files);
+            ToolExecutionResult checkstyle = execute_checkstyle(repo_dir, files, repo_id);
+            merge_tool_result(result, db, repo_id, run_id, checkstyle);
             continue;
         }
 
