@@ -12,8 +12,8 @@
 # 仅在未通过命令行指定时设置默认 toolchain（方便本地开发）
 # CI 中通过 cmake -DCMAKE_TOOLCHAIN_FILE=... 传入
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE OR CMAKE_TOOLCHAIN_FILE STREQUAL "")
-    set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
-    # set(CMAKE_TOOLCHAIN_FILE "E:/Code/se-metrics-platform/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+    # set(CMAKE_TOOLCHAIN_FILE "C:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+    set(CMAKE_TOOLCHAIN_FILE "E:/Code/se-metrics-platform/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 endif()
 
 cmake_minimum_required(VERSION 3.20)

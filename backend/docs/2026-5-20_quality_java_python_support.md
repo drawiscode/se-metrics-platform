@@ -22,6 +22,25 @@
 
 现在质量分析子系统可以通过同一套接口分析 C/C++、Python、Java 代码。
 
+## 2026-05-25 补充：质量洞察与运行正确性修正
+
+本次巡检补充了几个质量分析闭环修正：
+
+- `GET /api/repos/{repo_id}/quality/issues` 新增 `total` 字段，前端分页不再估算总数。
+- `quality_analysis_tasks` 列表查询修复了无 `status` 过滤时的分页占位符错位。
+- 趋势图只读取 `Finished` 运行，避免失败运行以空结果污染趋势分。
+- 基线退化判断同时考虑 `min_score`、`max_new_issues`、`max_error_issues`。
+- 修复扫描结果同步逻辑：只会把本次实际扫描过的文件中的旧问题标记为 `fixed`，避免热点模式或文件上限扫描误修复未扫描文件的问题。
+
+新增接口：
+
+```http
+GET /api/repos/{repo_id}/quality/insights
+GET /api/repos/{repo_id}/quality/insights?tool=cppcheck
+```
+
+返回当前风险级别、热点文件、高频规则、最近两次完成运行的评分变化和建议动作。前端 `QualityView` 已新增“质量洞察”卡片。
+
 ## 2. 后端实现
 
 主要修改文件：

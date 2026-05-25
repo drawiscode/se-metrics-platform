@@ -29,6 +29,7 @@ struct ToolExecutionResult {
     std::string tool;
     int analyzed_files = 0;
     int lines_analyzed = 0;
+    std::vector<std::string> analyzed_paths;
     std::vector<QualityIssue> issues;
     std::map<std::string, int> severity_stats;
     std::string output_file;
@@ -38,6 +39,13 @@ struct ToolExecutionResult {
 struct CommandCaptureResult {
     std::string output;
     int exit_code = 0;
+};
+
+struct QualityBaselineConfig {
+    bool configured = false;
+    double min_score = 80.0;
+    int max_new_issues = 0;
+    int max_error_issues = 0;
 };
 
 static std::string to_lower(std::string s)
@@ -191,7 +199,8 @@ static bool clone_or_pull_repo(const fs::path& repo_dir,
 
     if (!fs::exists(repo_dir)) {
         fs::create_directories(repo_dir.parent_path());
-        std::string cmd = "git clone --depth 1 --branch " + ref_arg + " " + url + " " + quote_path(repo_dir.string());
+        std::string cmd = "git clone --depth 1 --branch " + quote_path(ref_arg)
+            + " " + quote_path(url) + " " + quote_path(repo_dir.string());
         int rc = run_cmd(cmd);
         if (rc != 0) {
             err = "git clone failed";
@@ -205,7 +214,8 @@ static bool clone_or_pull_repo(const fs::path& repo_dir,
         return false;
     }
 
-    std::string cmd_fetch = "git -C " + quote_path(repo_dir.string()) + " fetch --depth 1 origin " + ref_arg;
+    std::string cmd_fetch = "git -C " + quote_path(repo_dir.string())
+        + " fetch --depth 1 origin " + quote_path(ref_arg);
     if (run_cmd(cmd_fetch) != 0) {
         err = "git fetch failed";
         return false;
@@ -339,6 +349,21 @@ static std::string to_relative_or_full(const fs::path& repo_dir, const std::stri
         if (!ec && !rel.empty()) return rel.generic_string();
     }
     return path;
+}
+
+static std::string normalize_issue_path(std::string path);
+
+static std::vector<std::string> relative_source_paths(const fs::path& repo_dir,
+                                                      const std::vector<fs::path>& files)
+{
+    std::vector<std::string> paths;
+    paths.reserve(files.size());
+    for (const auto& f : files) {
+        paths.push_back(normalize_issue_path(to_relative_or_full(repo_dir, f.string())));
+    }
+    std::sort(paths.begin(), paths.end());
+    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+    return paths;
 }
 
 static std::string normalize_issue_path(std::string path)
@@ -849,16 +874,21 @@ static void update_quality_task_after_run(Db& db, int task_id, int run_id, const
     sqlite3_finalize(stmt);
 }
 
-static double read_quality_baseline(Db& db, int repo_id)
+static QualityBaselineConfig read_quality_baseline(Db& db, int repo_id)
 {
+    QualityBaselineConfig baseline;
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT min_score FROM quality_baselines WHERE repo_id=?1;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1.0;
+    const char* sql =
+        "SELECT min_score, max_new_issues, max_error_issues "
+        "FROM quality_baselines WHERE repo_id=?1;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return baseline;
     sqlite3_bind_int(stmt, 1, repo_id);
-    double baseline = -1.0;
     if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_type(stmt, 0) != SQLITE_NULL) {
-        baseline = sqlite3_column_double(stmt, 0);
+        baseline.configured = true;
+        baseline.min_score = sqlite3_column_double(stmt, 0);
+        baseline.max_new_issues = sqlite3_column_int(stmt, 1);
+        baseline.max_error_issues = sqlite3_column_int(stmt, 2);
     }
     sqlite3_finalize(stmt);
     return baseline;
@@ -980,20 +1010,49 @@ static bool upsert_current_issue(Db& db,
     return insert_run_issue(db, run_id, repo_id, tool, issue_key, issue);
 }
 
-static int mark_fixed_issues(Db& db, int repo_id, int run_id, const std::string& tool)
+static int mark_fixed_issues(Db& db,
+                             int repo_id,
+                             int run_id,
+                             const std::string& tool,
+                             const std::vector<std::string>& analyzed_paths)
 {
+    if (analyzed_paths.empty()) return 0;
+
     sqlite3* sdb = db.handle();
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql =
-        "UPDATE quality_issues SET status='fixed', fixed_at=datetime('now') "
-        "WHERE repo_id=?1 AND tool=?2 AND status='active' AND last_seen_run_id<>?3;";
-    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
-    sqlite3_bind_int(stmt, 1, repo_id);
-    sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 3, run_id);
-    int rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    return rc == SQLITE_DONE ? sqlite3_changes(sdb) : 0;
+    int fixed_total = 0;
+    constexpr size_t kChunkSize = 400;
+
+    for (size_t begin = 0; begin < analyzed_paths.size(); begin += kChunkSize) {
+        const size_t end = std::min(begin + kChunkSize, analyzed_paths.size());
+        std::ostringstream sql;
+        sql << "UPDATE quality_issues SET status='fixed', fixed_at=datetime('now') "
+            << "WHERE repo_id=?1 AND tool=?2 AND status='active' AND last_seen_run_id<>?3 "
+            << "AND file_path IN (";
+        for (size_t i = begin; i < end; ++i) {
+            if (i > begin) sql << ",";
+            sql << "?" << (4 + static_cast<int>(i - begin));
+        }
+        sql << ");";
+
+        sqlite3_stmt* stmt = nullptr;
+        const std::string sql_text = sql.str();
+        if (sqlite3_prepare_v2(sdb, sql_text.c_str(), -1, &stmt, nullptr) != SQLITE_OK) continue;
+        sqlite3_bind_int(stmt, 1, repo_id);
+        sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 3, run_id);
+        for (size_t i = begin; i < end; ++i) {
+            sqlite3_bind_text(stmt,
+                              4 + static_cast<int>(i - begin),
+                              analyzed_paths[i].c_str(),
+                              -1,
+                              SQLITE_TRANSIENT);
+        }
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if (rc == SQLITE_DONE) fixed_total += sqlite3_changes(sdb);
+    }
+
+    return fixed_total;
 }
 
 static std::string ensure_output_dir()
@@ -1164,6 +1223,7 @@ static ToolExecutionResult execute_cppcheck(const fs::path& repo_dir,
     std::vector<fs::path> tool_files = tool_source_files(files, analyze_headers);
     result.analyzed_files = static_cast<int>(tool_files.size());
     result.lines_analyzed = count_lines(tool_files);
+    result.analyzed_paths = relative_source_paths(repo_dir, tool_files);
 
     if (tool_files.empty()) {
         result.error = "no source files to analyze";
@@ -1237,6 +1297,7 @@ static ToolExecutionResult execute_clang_tidy(const fs::path& repo_dir,
     std::vector<fs::path> tool_files = tool_source_files(files, false);
     result.analyzed_files = static_cast<int>(tool_files.size());
     result.lines_analyzed = count_lines(tool_files);
+    result.analyzed_paths = relative_source_paths(repo_dir, tool_files);
 
     if (tool_files.empty()) {
         result.error = "no source files to analyze";
@@ -1315,6 +1376,7 @@ static ToolExecutionResult execute_cpplint(const fs::path& repo_dir,
     std::vector<fs::path> tool_files = tool_source_files(files, true);
     result.analyzed_files = static_cast<int>(tool_files.size());
     result.lines_analyzed = count_lines(tool_files);
+    result.analyzed_paths = relative_source_paths(repo_dir, tool_files);
 
     if (tool_files.empty()) {
         result.error = "no source files to analyze";
@@ -1378,6 +1440,7 @@ static ToolExecutionResult execute_flawfinder(const fs::path& repo_dir,
     std::vector<fs::path> tool_files = tool_source_files(files, true);
     result.analyzed_files = static_cast<int>(tool_files.size());
     result.lines_analyzed = count_lines(tool_files);
+    result.analyzed_paths = relative_source_paths(repo_dir, tool_files);
 
     if (tool_files.empty()) {
         result.error = "no source files to analyze";
@@ -1439,6 +1502,7 @@ static ToolExecutionResult execute_pylint(const fs::path& repo_dir,
     result.tool = "pylint";
     result.analyzed_files = static_cast<int>(files.size());
     result.lines_analyzed = count_lines(files);
+    result.analyzed_paths = relative_source_paths(repo_dir, files);
 
     if (files.empty()) {
         result.error = "no Python source files to analyze";
@@ -1501,6 +1565,7 @@ static ToolExecutionResult execute_checkstyle(const fs::path& repo_dir,
     result.tool = "checkstyle";
     result.analyzed_files = static_cast<int>(files.size());
     result.lines_analyzed = count_lines(files);
+    result.analyzed_paths = relative_source_paths(repo_dir, files);
 
     if (files.empty()) {
         result.error = "no Java source files to analyze";
@@ -1588,7 +1653,11 @@ static void merge_tool_result(QualityAnalysisResult& aggregate,
 
     aggregate.issues_inserted += persisted;
     aggregate.issues_new += new_count;
-    aggregate.issues_fixed += mark_fixed_issues(db, repo_id, run_id, tool_result.tool);
+    aggregate.issues_fixed += mark_fixed_issues(db,
+                                                repo_id,
+                                                run_id,
+                                                tool_result.tool,
+                                                tool_result.analyzed_paths);
 }
 
 static fs::path resolve_existing_compile_commands_dir(const fs::path& repo_dir)
@@ -1747,9 +1816,18 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
 
     result.status = result.error.empty() ? "Finished" : "Failed";
     QualityScore score = compute_quality_score_for_run(db, run_id);
-    const double baseline = read_quality_baseline(db, repo_id);
-    const bool degraded = baseline >= 0.0 && score.score < baseline;
-    finish_quality_run(db, run_id, result, score.score, baseline, degraded);
+    const QualityBaselineConfig baseline = read_quality_baseline(db, repo_id);
+    const int error_count = score.severity_counts.count("error") ? score.severity_counts["error"] : 0;
+    const bool degraded = baseline.configured
+        && (score.score < baseline.min_score
+            || result.issues_new > baseline.max_new_issues
+            || error_count > baseline.max_error_issues);
+    finish_quality_run(db,
+                       run_id,
+                       result,
+                       score.score,
+                       baseline.configured ? baseline.min_score : -1.0,
+                       degraded);
     update_quality_task_after_run(db, task_id, run_id, result.status);
     return result;
 }

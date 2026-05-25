@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <algorithm>
+#include <cmath>
 
 static constexpr const char* kJson = "application/json; charset=utf-8";
 
@@ -191,8 +192,41 @@ static void get_quality_issues_handler(Db& db, const httplib::Request& req, http
     }
     sqlite3_finalize(stmt);
 
+    std::string count_sql = "SELECT COUNT(*) FROM quality_issues WHERE repo_id=?1 ";
+    next_param = 2;
+    tool_param = 0;
+    severity_param = 0;
+    status_param = 0;
+    if (!tool.empty()) {
+        tool_param = next_param++;
+        count_sql += "AND tool=?" + std::to_string(tool_param) + " ";
+    }
+    if (!severity.empty()) {
+        severity_param = next_param++;
+        count_sql += "AND severity=?" + std::to_string(severity_param) + " ";
+    }
+    if (!status.empty() && status != "all") {
+        status_param = next_param++;
+        count_sql += "AND status=?" + std::to_string(status_param) + " ";
+    }
+    count_sql += ";";
+
+    int total = static_cast<int>(items.size());
+    stmt = nullptr;
+    if (sqlite3_prepare_v2(sdb, count_sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, rid);
+        if (tool_param) sqlite3_bind_text(stmt, tool_param, tool.c_str(), -1, SQLITE_TRANSIENT);
+        if (severity_param) sqlite3_bind_text(stmt, severity_param, severity.c_str(), -1, SQLITE_TRANSIENT);
+        if (status_param) sqlite3_bind_text(stmt, status_param, status.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            total = sqlite3_column_int(stmt, 0);
+        }
+    }
+    if (stmt) sqlite3_finalize(stmt);
+
     nlohmann::json out;
     out["items"] = items;
+    out["total"] = total;
     out["limit"] = limit;
     out["offset"] = offset;
     res.set_content(out.dump(), kJson);
@@ -208,21 +242,27 @@ static void get_quality_summary_handler(Db& db, const httplib::Request& req, htt
 
     int lines_analyzed = 0;
     int latest_run_id = 0;
+    int latest_new_issues = 0;
     std::string latest_status;
     std::string latest_started_at;
     {
         sqlite3_stmt* stmt = nullptr;
-        const char* sql =
-            "SELECT id, status, started_at, lines_analyzed "
-            "FROM quality_analysis_runs WHERE repo_id=?1 "
-            "ORDER BY started_at DESC, id DESC LIMIT 1;";
-        if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        std::string sql =
+            "SELECT id, status, started_at, lines_analyzed, issues_new "
+            "FROM quality_analysis_runs WHERE repo_id=?1 ";
+        if (!tool.empty()) {
+            sql += "AND instr(',' || replace(tools, ' ', '') || ',', ',' || ?2 || ',')>0 ";
+        }
+        sql += "ORDER BY started_at DESC, id DESC LIMIT 1;";
+        if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int(stmt, 1, rid);
+            if (!tool.empty()) sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
             if (sqlite3_step(stmt) == SQLITE_ROW) {
                 latest_run_id = sqlite3_column_int(stmt, 0);
                 latest_status = col_text(stmt, 1);
                 latest_started_at = col_text(stmt, 2);
                 lines_analyzed = sqlite3_column_int(stmt, 3);
+                latest_new_issues = sqlite3_column_int(stmt, 4);
             }
         }
         if (stmt) sqlite3_finalize(stmt);
@@ -255,6 +295,7 @@ static void get_quality_summary_handler(Db& db, const httplib::Request& req, htt
     const bool score_degraded = has_baseline && q.score < min_score;
     const int active_errors = q.severity_counts.count("error") ? q.severity_counts["error"] : 0;
     const bool error_degraded = has_baseline && max_error_issues >= 0 && active_errors > max_error_issues;
+    const bool new_issues_degraded = has_baseline && max_new_issues >= 0 && latest_new_issues > max_new_issues;
 
     nlohmann::json out;
     out["tool"] = tool;
@@ -264,17 +305,20 @@ static void get_quality_summary_handler(Db& db, const httplib::Request& req, htt
     out["latest_run"] = {
         {"id", latest_run_id},
         {"status", latest_status},
-        {"started_at", latest_started_at}
+        {"started_at", latest_started_at},
+        {"issues_new", latest_new_issues}
     };
     out["baseline"] = {
         {"configured", has_baseline},
         {"min_score", min_score},
         {"max_new_issues", max_new_issues},
         {"max_error_issues", max_error_issues},
+        {"latest_new_issues", latest_new_issues},
         {"active_error_issues", active_errors},
-        {"degraded", score_degraded || error_degraded},
+        {"degraded", score_degraded || error_degraded || new_issues_degraded},
         {"score_degraded", score_degraded},
-        {"error_degraded", error_degraded}
+        {"error_degraded", error_degraded},
+        {"new_issues_degraded", new_issues_degraded}
     };
     res.set_content(out.dump(), kJson);
 }
@@ -358,7 +402,10 @@ static void get_quality_tasks_handler(Db& db, const httplib::Request& req, httpl
         "last_run_id, created_at, updated_at "
         "FROM quality_analysis_tasks WHERE repo_id=?1 ";
     if (!status.empty()) sql += "AND status=?2 ";
-    sql += "ORDER BY created_at DESC, id DESC LIMIT ?3 OFFSET ?4;";
+    const int limit_param = status.empty() ? 2 : 3;
+    const int offset_param = status.empty() ? 3 : 4;
+    sql += "ORDER BY created_at DESC, id DESC LIMIT ?" + std::to_string(limit_param)
+        + " OFFSET ?" + std::to_string(offset_param) + ";";
 
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
@@ -371,8 +418,8 @@ static void get_quality_tasks_handler(Db& db, const httplib::Request& req, httpl
     int bi = 1;
     sqlite3_bind_int(stmt, bi++, rid);
     if (!status.empty()) sqlite3_bind_text(stmt, bi++, status.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, bi++, limit);
-    sqlite3_bind_int(stmt, bi++, offset);
+    sqlite3_bind_int(stmt, limit_param, limit);
+    sqlite3_bind_int(stmt, offset_param, offset);
 
     nlohmann::json items = nlohmann::json::array();
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -451,6 +498,7 @@ static void get_quality_runs_handler(Db& db, const httplib::Request& req, httpli
         QualityScore run_score = compute_quality_score_for_run(db, run_id);
         const bool has_baseline = sqlite3_column_type(stmt, 16) != SQLITE_NULL;
         const double baseline_score = has_baseline ? sqlite3_column_double(stmt, 16) : 0.0;
+        const bool degraded = sqlite3_column_int(stmt, 17) != 0;
         nlohmann::json item;
         item["id"] = run_id;
         item["task_id"] = sqlite3_column_type(stmt, 1) == SQLITE_NULL ? nullptr : nlohmann::json(sqlite3_column_int(stmt, 1));
@@ -470,7 +518,7 @@ static void get_quality_runs_handler(Db& db, const httplib::Request& req, httpli
         catch (...) { item["issues_by_severity"] = nlohmann::json::object(); }
         item["score"] = run_score.score;
         item["baseline_score"] = has_baseline ? nlohmann::json(baseline_score) : nullptr;
-        item["degraded"] = has_baseline && run_score.score < baseline_score;
+        item["degraded"] = degraded;
         try { item["output"] = nlohmann::json::parse(col_text(stmt, 18)); }
         catch (...) { item["output"] = nlohmann::json::object(); }
         item["error"] = col_text(stmt, 19);
@@ -493,7 +541,7 @@ static void get_quality_trend_handler(Db& db, const httplib::Request& req, httpl
     const char* sql =
         "SELECT id, started_at, status, issues_total, issues_new, issues_fixed, score, "
         "lines_analyzed, degraded, issues_by_severity_json, baseline_score "
-        "FROM quality_analysis_runs WHERE repo_id=?1 "
+        "FROM quality_analysis_runs WHERE repo_id=?1 AND status='Finished' "
         "ORDER BY started_at DESC, id DESC LIMIT ?2;";
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         res.status = 500;
@@ -509,8 +557,6 @@ static void get_quality_trend_handler(Db& db, const httplib::Request& req, httpl
         const int lines = sqlite3_column_int(stmt, 7);
         const int total = sqlite3_column_int(stmt, 3);
         QualityScore run_score = compute_quality_score_for_run(db, run_id);
-        const bool has_baseline = sqlite3_column_type(stmt, 10) != SQLITE_NULL;
-        const double baseline_score = has_baseline ? sqlite3_column_double(stmt, 10) : 0.0;
         nlohmann::json item;
         item["run_id"] = run_id;
         item["started_at"] = col_text(stmt, 1);
@@ -521,7 +567,7 @@ static void get_quality_trend_handler(Db& db, const httplib::Request& req, httpl
         item["score"] = run_score.score;
         item["lines_analyzed"] = lines;
         item["density_per_kloc"] = lines > 0 ? (static_cast<double>(total) * 1000.0 / lines) : 0.0;
-        item["degraded"] = has_baseline && run_score.score < baseline_score;
+        item["degraded"] = sqlite3_column_int(stmt, 8) != 0;
         try { item["severity"] = nlohmann::json::parse(col_text(stmt, 9)); }
         catch (...) { item["severity"] = nlohmann::json::object(); }
         items.push_back(std::move(item));
@@ -586,6 +632,143 @@ static void get_quality_top_handler(Db& db, const httplib::Request& req, httplib
     nlohmann::json out;
     out["by"] = by;
     out["items"] = items;
+    res.set_content(out.dump(), kJson);
+}
+
+static void get_quality_insights_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+    const std::string tool = get_str_param_quality(req, "tool", "");
+    sqlite3* sdb = db.handle();
+
+    QualityScore current = compute_quality_score(db, rid, tool);
+    const int active_errors = current.severity_counts.count("error") ? current.severity_counts["error"] : 0;
+
+    nlohmann::json top_file = nullptr;
+    {
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql =
+            "SELECT file_path, COUNT(*) AS total, "
+            "SUM(CASE WHEN severity='error' THEN 1 ELSE 0 END) AS errors "
+            "FROM quality_issues WHERE repo_id=?1 AND status='active' "
+            "AND (?2='' OR tool=?2) GROUP BY file_path "
+            "ORDER BY errors DESC, total DESC, file_path ASC LIMIT 1;";
+        if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, rid);
+            sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                top_file = {
+                    {"path", col_text(stmt, 0)},
+                    {"total", sqlite3_column_int(stmt, 1)},
+                    {"errors", sqlite3_column_int(stmt, 2)}
+                };
+            }
+        }
+        if (stmt) sqlite3_finalize(stmt);
+    }
+
+    nlohmann::json top_rule = nullptr;
+    {
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql =
+            "SELECT rule_id, COUNT(*) AS total "
+            "FROM quality_issues WHERE repo_id=?1 AND status='active' "
+            "AND (?2='' OR tool=?2) GROUP BY rule_id "
+            "ORDER BY total DESC, rule_id ASC LIMIT 1;";
+        if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, rid);
+            sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                top_rule = {
+                    {"rule_id", col_text(stmt, 0)},
+                    {"total", sqlite3_column_int(stmt, 1)}
+                };
+            }
+        }
+        if (stmt) sqlite3_finalize(stmt);
+    }
+
+    double latest_score = current.score;
+    double previous_score = current.score;
+    int latest_issues = current.total_issues;
+    int previous_issues = current.total_issues;
+    std::string latest_started_at;
+    {
+        sqlite3_stmt* stmt = nullptr;
+        std::string sql =
+            "SELECT id, started_at FROM quality_analysis_runs "
+            "WHERE repo_id=?1 AND status='Finished' ";
+        if (!tool.empty()) {
+            sql += "AND instr(',' || replace(tools, ' ', '') || ',', ',' || ?2 || ',')>0 ";
+        }
+        sql += "ORDER BY started_at DESC, id DESC LIMIT 2;";
+        if (sqlite3_prepare_v2(sdb, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, rid);
+            if (!tool.empty()) sqlite3_bind_text(stmt, 2, tool.c_str(), -1, SQLITE_TRANSIENT);
+            int idx = 0;
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                const int run_id = sqlite3_column_int(stmt, 0);
+                QualityScore run_score = compute_quality_score_for_run(db, run_id);
+                if (idx == 0) {
+                    latest_score = run_score.score;
+                    latest_issues = run_score.total_issues;
+                    latest_started_at = col_text(stmt, 1);
+                } else {
+                    previous_score = run_score.score;
+                    previous_issues = run_score.total_issues;
+                }
+                ++idx;
+            }
+        }
+        if (stmt) sqlite3_finalize(stmt);
+    }
+
+    const double score_delta = latest_score - previous_score;
+    const int issue_delta = latest_issues - previous_issues;
+
+    std::string risk_level = "clean";
+    if (active_errors > 0 || current.score < 60.0) risk_level = "critical";
+    else if (current.score < 80.0 || current.total_issues > 0 || score_delta < -1.0) risk_level = "watch";
+
+    nlohmann::json actions = nlohmann::json::array();
+    if (active_errors > 0) {
+        actions.push_back("优先清理 active error 问题，避免真实缺陷和安全风险继续累积。");
+    }
+    if (!top_file.is_null()) {
+        actions.push_back("先处理热点文件 " + top_file.value("path", std::string{})
+            + "，它集中了 " + std::to_string(top_file.value("total", 0)) + " 个活跃问题。");
+    }
+    if (!top_rule.is_null() && top_rule.value("total", 0) >= 3) {
+        actions.push_back("将规则 " + top_rule.value("rule_id", std::string{})
+            + " 做成团队级修复清单，适合批量治理。");
+    }
+    if (score_delta < -1.0) {
+        actions.push_back("最近完成扫描评分下降 "
+            + std::to_string(std::abs(score_delta)).substr(0, 4)
+            + " 分，建议回看最新提交或变更范围。");
+    }
+    if (actions.empty()) {
+        actions.push_back("当前质量信号稳定，可以保持周期扫描并把基线设为团队准入条件。");
+    }
+
+    nlohmann::json out;
+    out["tool"] = tool;
+    out["risk_level"] = risk_level;
+    out["current_score"] = current.score;
+    out["active_issues"] = current.total_issues;
+    out["active_errors"] = active_errors;
+    out["top_file"] = top_file;
+    out["top_rule"] = top_rule;
+    out["trend"] = {
+        {"latest_started_at", latest_started_at},
+        {"latest_score", latest_score},
+        {"previous_score", previous_score},
+        {"score_delta", score_delta},
+        {"latest_issues", latest_issues},
+        {"previous_issues", previous_issues},
+        {"issue_delta", issue_delta}
+    };
+    out["actions"] = actions;
     res.set_content(out.dump(), kJson);
 }
 
@@ -748,6 +931,15 @@ void register_quality_routes(httplib::Server& app, Db& db)
     app.Get(R"(/api/repos/(\d+)/quality/top)",
             [&db](const httplib::Request& req, httplib::Response& res) {
                 try { get_quality_top_handler(db, req, res); }
+                catch (const std::exception& e) {
+                    res.status = 500;
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJson);
+                }
+            });
+
+    app.Get(R"(/api/repos/(\d+)/quality/insights)",
+            [&db](const httplib::Request& req, httplib::Response& res) {
+                try { get_quality_insights_handler(db, req, res); }
                 catch (const std::exception& e) {
                     res.status = 500;
                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJson);

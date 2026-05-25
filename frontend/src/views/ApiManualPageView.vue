@@ -361,7 +361,7 @@
             {
               type: 'code',
               lang: 'http',
-              code: 'GET /api/repos/{repo_id}/quality/issues?status=active&limit=100\nGET /api/repos/{repo_id}/quality/summary?tool=cppcheck',
+              code: 'GET /api/repos/{repo_id}/quality/issues?status=active&limit=100\nGET /api/repos/{repo_id}/quality/summary?tool=cppcheck\nGET /api/repos/{repo_id}/quality/insights',
             },
           ],
         },
@@ -382,7 +382,7 @@
             {
               type: 'code',
               lang: 'http',
-              code: 'GET /api/repos/{repo_id}/quality/runs?limit=20\nGET /api/repos/{repo_id}/quality/trend?limit=10\nGET /api/repos/{repo_id}/quality/top?by=file&limit=20',
+              code: 'GET /api/repos/{repo_id}/quality/runs?limit=20\nGET /api/repos/{repo_id}/quality/trend?limit=10\nGET /api/repos/{repo_id}/quality/top?by=file&limit=20\nGET /api/repos/{repo_id}/quality/insights',
             },
           ],
         },
