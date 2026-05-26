@@ -58,11 +58,6 @@ static void load_env_best_effort()
 
 int main()
 {
-    //test
-    int a=2;
-    int *p;
-    std::cout<<*p;
-
     try
     {
         // Windows 下设置控制台输出编码为 UTF-8

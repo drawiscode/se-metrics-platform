@@ -366,7 +366,10 @@ static std::string to_relative_or_full(const fs::path& repo_dir, const std::stri
 {
     std::error_code ec;
     fs::path p(path);
-    if (p.is_absolute()) {
+    if (!p.is_absolute()) {
+        p = fs::absolute(p, ec);
+    }
+    if (!ec) {
         auto rel = fs::relative(p, repo_dir, ec);
         if (!ec && !rel.empty()) return rel.generic_string();
     }
