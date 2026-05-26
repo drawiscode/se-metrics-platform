@@ -243,9 +243,12 @@ static bool ensure_repo_checkout(int repo_id,
 static std::vector<fs::path> collect_source_files(const fs::path& repo_dir,
                                                   bool hot_mode,
                                                   int max_files,
-                                                  bool (*is_source)(const fs::path&))
+                                                  bool (*is_source)(const fs::path&),
+                                                  const std::string& target_path,
+                                                  bool target_is_dir)
 {
     std::vector<fs::path> files;
+    const bool apply_hot = hot_mode && target_path.empty();
     for (auto it = fs::recursive_directory_iterator(repo_dir); it != fs::recursive_directory_iterator(); ++it) {
         const auto& p = it->path();
         if (is_ignored_dir(p)) {
@@ -258,7 +261,14 @@ static std::vector<fs::path> collect_source_files(const fs::path& repo_dir,
         std::string rel = fs::relative(p, repo_dir).generic_string();
         if (rel.empty()) continue;
         if (is_quality_ignored_path(rel)) continue;
-        if (hot_mode && !is_hot_path(rel)) continue;
+        if (!target_path.empty()) {
+            const bool is_match = rel == target_path
+                || (target_is_dir && rel.size() > target_path.size()
+                    && rel.compare(0, target_path.size(), target_path) == 0
+                    && rel[target_path.size()] == '/');
+            if (!is_match) continue;
+        }
+        if (apply_hot && !is_hot_path(rel)) continue;
 
         files.push_back(p);
         if (max_files > 0 && static_cast<int>(files.size()) >= max_files) break;
@@ -267,19 +277,31 @@ static std::vector<fs::path> collect_source_files(const fs::path& repo_dir,
     return files;
 }
 
-static std::vector<fs::path> collect_cpp_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+static std::vector<fs::path> collect_cpp_files(const fs::path& repo_dir,
+                                               bool hot_mode,
+                                               int max_files,
+                                               const std::string& target_path,
+                                               bool target_is_dir)
 {
-    return collect_source_files(repo_dir, hot_mode, max_files, is_cpp_source);
+    return collect_source_files(repo_dir, hot_mode, max_files, is_cpp_source, target_path, target_is_dir);
 }
 
-static std::vector<fs::path> collect_python_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+static std::vector<fs::path> collect_python_files(const fs::path& repo_dir,
+                                                  bool hot_mode,
+                                                  int max_files,
+                                                  const std::string& target_path,
+                                                  bool target_is_dir)
 {
-    return collect_source_files(repo_dir, hot_mode, max_files, is_python_source);
+    return collect_source_files(repo_dir, hot_mode, max_files, is_python_source, target_path, target_is_dir);
 }
 
-static std::vector<fs::path> collect_java_files(const fs::path& repo_dir, bool hot_mode, int max_files)
+static std::vector<fs::path> collect_java_files(const fs::path& repo_dir,
+                                                bool hot_mode,
+                                                int max_files,
+                                                const std::string& target_path,
+                                                bool target_is_dir)
 {
-    return collect_source_files(repo_dir, hot_mode, max_files, is_java_source);
+    return collect_source_files(repo_dir, hot_mode, max_files, is_java_source, target_path, target_is_dir);
 }
 
 static bool path_matches_pattern(const std::string& rel, const std::string& raw_pattern)
@@ -371,6 +393,45 @@ static std::string normalize_issue_path(std::string path)
     std::replace(path.begin(), path.end(), '\\', '/');
     while (path.rfind("./", 0) == 0) path.erase(0, 2);
     return path;
+}
+
+static std::string normalize_target_path(std::string path)
+{
+    path = util::trim(path);
+    std::replace(path.begin(), path.end(), '\\', '/');
+    while (path.rfind("./", 0) == 0) path.erase(0, 2);
+    while (!path.empty() && path.back() == '/') path.pop_back();
+    return path;
+}
+
+static bool is_safe_rel_path(const std::string& rel_path)
+{
+    if (rel_path.empty()) return false;
+    if (rel_path.front() == '/' || rel_path.front() == '\\') return false;
+    if (rel_path.size() > 1 && std::isalpha(static_cast<unsigned char>(rel_path[0])) && rel_path[1] == ':') return false;
+
+    std::string normalized = rel_path;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    std::string seg;
+    std::istringstream iss(normalized);
+    while (std::getline(iss, seg, '/')) {
+        if (seg.empty() || seg == "..") return false;
+    }
+    return true;
+}
+
+static std::string read_target_from_config(const std::string& config_json)
+{
+    if (config_json.empty()) return {};
+    try {
+        auto config = nlohmann::json::parse(config_json);
+        if (!config.is_object()) return {};
+        std::string target = config.value("path", std::string{});
+        if (target.empty()) target = config.value("target", std::string{});
+        return util::trim(target);
+    } catch (...) {
+        return {};
+    }
 }
 
 static std::string canonical_tool_name(std::string tool)
@@ -1230,6 +1291,8 @@ static ToolExecutionResult execute_cppcheck(const fs::path& repo_dir,
         return result;
     }
 
+    std::cerr << "[quality:1] cppcheck start: files=" << tool_files.size() << "\n";
+
     std::string bin = util::trim(util::get_env("CPPCHECK_BIN", "cppcheck"));
     std::string out_dir = ensure_output_dir();
     std::string stamp = make_timestamp();
@@ -1244,8 +1307,8 @@ static ToolExecutionResult execute_cppcheck(const fs::path& repo_dir,
 
     std::ostringstream cmd;
     cmd << quote_path(bin)
-        << " --xml --xml-version=2 --enable=all --inconclusive --quiet --force"
-        << " --language=c++ --std=c++17";
+        << " --xml --xml-version=2 --enable=all --quiet --force"
+        << " --language=c++ --std=c++17 --max-configs=1";
 
     for (const auto& rule : ignored_rule_ids()) {
         if (!rule.empty()) cmd << " --suppress=" << rule;
@@ -1270,6 +1333,8 @@ static ToolExecutionResult execute_cppcheck(const fs::path& repo_dir,
         result.error = rc == 0 ? "cppcheck produced empty XML output" : "cppcheck command failed";
         return result;
     }
+
+    std::cerr << "[quality] cppcheck output: " << out_file.string() << "\n";
 
     result.issues = parse_cppcheck_xml(xml, repo_dir);
     normalize_and_filter_issues(result.issues);
@@ -1304,6 +1369,8 @@ static ToolExecutionResult execute_clang_tidy(const fs::path& repo_dir,
         return result;
     }
 
+    std::cerr << "[quality] clang-tidy start: files=" << tool_files.size() << "\n";
+
     std::string out_dir = ensure_output_dir();
     std::string stamp = make_timestamp();
     fs::path out_file = fs::path(out_dir) / ("clang_tidy_" + std::to_string(repo_id) + "_" + stamp + ".log");
@@ -1325,7 +1392,12 @@ static ToolExecutionResult execute_clang_tidy(const fs::path& repo_dir,
     std::string extra = util::trim(util::get_env("CLANG_TIDY_ARGS", ""));
     std::vector<std::string> failed_samples;
 
-    for (const auto& f : tool_files) {
+    for (size_t i = 0; i < tool_files.size(); ++i) {
+        const auto& f = tool_files[i];
+        if (i == 0 || (i + 1) % 25 == 0 || (i + 1) == tool_files.size()) {
+            std::cerr << "[quality] clang-tidy progress: " << (i + 1) << "/" << tool_files.size()
+                      << "\n";
+        }
         std::ostringstream cmd;
         cmd << quote_path(bin)
             << " -p " << quote_path(cc_dir.string())
@@ -1383,6 +1455,8 @@ static ToolExecutionResult execute_cpplint(const fs::path& repo_dir,
         return result;
     }
 
+    std::cerr << "[quality] cpplint start: files=" << tool_files.size() << "\n";
+
     std::string out_dir = ensure_output_dir();
     std::string stamp = make_timestamp();
     fs::path out_file = fs::path(out_dir) / ("cpplint_" + std::to_string(repo_id) + "_" + stamp + ".log");
@@ -1392,7 +1466,12 @@ static ToolExecutionResult execute_cpplint(const fs::path& repo_dir,
     std::string extra = util::trim(util::get_env("CPPLINT_ARGS", ""));
     std::vector<std::string> failed_samples;
 
-    for (const auto& f : tool_files) {
+    for (size_t i = 0; i < tool_files.size(); ++i) {
+        const auto& f = tool_files[i];
+        if (i == 0 || (i + 1) % 50 == 0 || (i + 1) == tool_files.size()) {
+            std::cerr << "[quality] cpplint progress: " << (i + 1) << "/" << tool_files.size()
+                      << "\n";
+        }
         std::ostringstream cmd;
         cmd << quote_path(bin);
         if (!extra.empty()) cmd << " " << extra;
@@ -1447,6 +1526,8 @@ static ToolExecutionResult execute_flawfinder(const fs::path& repo_dir,
         return result;
     }
 
+    std::cerr << "[quality] flawfinder start: files=" << tool_files.size() << "\n";
+
     std::string out_dir = ensure_output_dir();
     std::string stamp = make_timestamp();
     fs::path out_file = fs::path(out_dir) / ("flawfinder_" + std::to_string(repo_id) + "_" + stamp + ".log");
@@ -1456,7 +1537,12 @@ static ToolExecutionResult execute_flawfinder(const fs::path& repo_dir,
     std::string extra = util::trim(util::get_env("FLAWFINDER_ARGS", "--quiet"));
     std::vector<std::string> failed_samples;
 
-    for (const auto& f : tool_files) {
+    for (size_t i = 0; i < tool_files.size(); ++i) {
+        const auto& f = tool_files[i];
+        if (i == 0 || (i + 1) % 50 == 0 || (i + 1) == tool_files.size()) {
+            std::cerr << "[quality] flawfinder progress: " << (i + 1) << "/" << tool_files.size()
+                      << "\n";
+        }
         std::ostringstream cmd;
         cmd << quote_path(bin);
         if (!extra.empty()) cmd << " " << extra;
@@ -1509,6 +1595,8 @@ static ToolExecutionResult execute_pylint(const fs::path& repo_dir,
         return result;
     }
 
+    std::cerr << "[quality] pylint start: files=" << files.size() << "\n";
+
     std::string out_dir = ensure_output_dir();
     std::string stamp = make_timestamp();
     fs::path out_file = fs::path(out_dir) / ("pylint_" + std::to_string(repo_id) + "_" + stamp + ".log");
@@ -1518,7 +1606,12 @@ static ToolExecutionResult execute_pylint(const fs::path& repo_dir,
     std::string extra = util::trim(util::get_env("PYLINT_ARGS", "--score=n"));
     std::vector<std::string> failed_samples;
 
-    for (const auto& f : files) {
+    for (size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        if (i == 0 || (i + 1) % 50 == 0 || (i + 1) == files.size()) {
+            std::cerr << "[quality] pylint progress: " << (i + 1) << "/" << files.size()
+                      << "\n";
+        }
         std::ostringstream cmd;
         cmd << quote_path(bin)
             << " --output-format=json";
@@ -1572,6 +1665,8 @@ static ToolExecutionResult execute_checkstyle(const fs::path& repo_dir,
         return result;
     }
 
+    std::cerr << "[quality] checkstyle start: files=" << files.size() << "\n";
+
     std::string out_dir = ensure_output_dir();
     std::string stamp = make_timestamp();
     fs::path out_file = fs::path(out_dir) / ("checkstyle_" + std::to_string(repo_id) + "_" + stamp + ".xml");
@@ -1582,7 +1677,12 @@ static ToolExecutionResult execute_checkstyle(const fs::path& repo_dir,
     std::string extra = util::trim(util::get_env("CHECKSTYLE_ARGS", ""));
     std::vector<std::string> failed_samples;
 
-    for (const auto& f : files) {
+    for (size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        if (i == 0 || (i + 1) % 50 == 0 || (i + 1) == files.size()) {
+            std::cerr << "[quality] checkstyle progress: " << (i + 1) << "/" << files.size()
+                      << "\n";
+        }
         std::ostringstream cmd;
         cmd << quote_path(bin)
             << " -f xml -c " << quote_path(config);
@@ -1743,6 +1843,13 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
     result.tool = tools;
     result.status = "Running";
 
+    std::cerr << "[quality] run start: repo_id=" << repo_id
+              << " ref=" << ref
+              << " tools=" << tools
+              << " mode=" << mode
+              << " max_files=" << max_files
+              << "\n";
+
     const std::vector<std::string> requested_tools = split_list(tools.empty() ? "cppcheck" : tools);
     const std::vector<std::string> tool_names = expand_requested_tools(requested_tools);
     if (tool_names.empty()) {
@@ -1756,6 +1863,7 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
     if (!ensure_repo_checkout(repo_id, full_name, ref, repo_dir, err)) {
         result.status = "Failed";
         result.error = err;
+        std::cerr << "[quality] run failed: " << result.error << "\n";
         return result;
     }
 
@@ -1770,41 +1878,78 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
     }
 
     const bool hot_mode = (to_lower(mode) == "hot");
+    const std::string target_raw = read_target_from_config(config_json);
+    const std::string target_path = normalize_target_path(target_raw);
+    const bool has_target = !target_path.empty();
+    bool target_is_dir = false;
+
+    if (has_target) {
+        if (!is_safe_rel_path(target_path)) {
+            result.error = "invalid target path";
+        } else {
+            std::error_code ec;
+            const fs::path target_full = repo_dir / target_path;
+            if (!fs::exists(target_full, ec)) {
+                result.error = "target path not found";
+            } else if (fs::is_directory(target_full, ec)) {
+                target_is_dir = true;
+            } else if (!fs::is_regular_file(target_full, ec)) {
+                result.error = "target path is not a file or directory";
+            }
+        }
+    }
+
+    if (!result.error.empty()) {
+        result.status = "Failed";
+        QualityScore score = compute_quality_score_for_run(db, run_id);
+        const QualityBaselineConfig baseline = read_quality_baseline(db, repo_id);
+        finish_quality_run(db,
+                           run_id,
+                           result,
+                           score.score,
+                           baseline.configured ? baseline.min_score : -1.0,
+                           false);
+        update_quality_task_after_run(db, task_id, run_id, result.status);
+        std::cerr << "[quality] run failed: " << result.error << "\n";
+        return result;
+    }
+
+    const bool effective_hot_mode = hot_mode && !has_target;
 
     for (const auto& raw_tool : tool_names) {
         std::string tool_lower = canonical_tool_name(raw_tool);
         if (tool_lower == "cppcheck") {
-            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
+            auto files = collect_cpp_files(repo_dir, effective_hot_mode, max_files, target_path, target_is_dir);
             ToolExecutionResult cppcheck = execute_cppcheck(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, cppcheck);
             continue;
         }
         if (tool_lower == "clang-tidy") {
-            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
+            auto files = collect_cpp_files(repo_dir, effective_hot_mode, max_files, target_path, target_is_dir);
             ToolExecutionResult clang_tidy = execute_clang_tidy(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, clang_tidy);
             continue;
         }
         if (tool_lower == "cpplint") {
-            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
+            auto files = collect_cpp_files(repo_dir, effective_hot_mode, max_files, target_path, target_is_dir);
             ToolExecutionResult cpplint = execute_cpplint(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, cpplint);
             continue;
         }
         if (tool_lower == "flawfinder") {
-            auto files = collect_cpp_files(repo_dir, hot_mode, max_files);
+            auto files = collect_cpp_files(repo_dir, effective_hot_mode, max_files, target_path, target_is_dir);
             ToolExecutionResult flawfinder = execute_flawfinder(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, flawfinder);
             continue;
         }
         if (tool_lower == "pylint") {
-            auto files = collect_python_files(repo_dir, hot_mode, max_files);
+            auto files = collect_python_files(repo_dir, effective_hot_mode, max_files, target_path, target_is_dir);
             ToolExecutionResult pylint = execute_pylint(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, pylint);
             continue;
         }
         if (tool_lower == "checkstyle") {
-            auto files = collect_java_files(repo_dir, hot_mode, max_files);
+            auto files = collect_java_files(repo_dir, effective_hot_mode, max_files, target_path, target_is_dir);
             ToolExecutionResult checkstyle = execute_checkstyle(repo_dir, files, repo_id);
             merge_tool_result(result, db, repo_id, run_id, checkstyle);
             continue;
@@ -1829,6 +1974,10 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
                        baseline.configured ? baseline.min_score : -1.0,
                        degraded);
     update_quality_task_after_run(db, task_id, run_id, result.status);
+    std::cerr << "[quality] run finished: status=" << result.status
+              << " issues_new=" << result.issues_new
+              << " issues_fixed=" << result.issues_fixed
+              << "\n";
     return result;
 }
 
@@ -1870,4 +2019,18 @@ std::string quality_result_to_json(const QualityAnalysisResult& r)
     }
     oss << "}";
     return oss.str();
+}
+
+bool ensure_repo_checkout_for_quality(int repo_id,
+                                      const std::string& full_name,
+                                      const std::string& ref,
+                                      std::string& repo_dir_out,
+                                      std::string& err)
+{
+    fs::path repo_dir;
+    if (!ensure_repo_checkout(repo_id, full_name, ref, repo_dir, err)) {
+        return false;
+    }
+    repo_dir_out = repo_dir.string();
+    return true;
 }

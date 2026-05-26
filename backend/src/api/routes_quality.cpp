@@ -5,9 +5,13 @@
 
 #include <sqlite3.h>
 #include <nlohmann/json.hpp>
+#include <filesystem>
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
+#include <cctype>
+#include <vector>
 
 static constexpr const char* kJson = "application/json; charset=utf-8";
 
@@ -46,6 +50,59 @@ static nlohmann::json parse_json_body(const httplib::Request& req)
 {
     if (req.body.empty()) return nlohmann::json::object();
     return nlohmann::json::parse(req.body);
+}
+
+static std::string merge_config_with_path(const nlohmann::json& body,
+                                          const httplib::Request& req,
+                                          const std::string& base_config_json)
+{
+    std::string path = body.value("path", body.value("target", get_str_param_quality(req, "path", "")));
+    nlohmann::json config = nlohmann::json::object();
+    if (!base_config_json.empty()) {
+        try {
+            config = nlohmann::json::parse(base_config_json);
+            if (!config.is_object()) config = nlohmann::json::object();
+        } catch (...) {
+            config = nlohmann::json::object();
+        }
+    }
+    if (!path.empty()) config["path"] = path;
+    return config.dump();
+}
+
+static bool is_tree_ignored_dir(const std::filesystem::path& p)
+{
+    static const std::unordered_set<std::string> kIgnored = {
+        ".git", "node_modules", "dist", "build", "out",
+        "vendor", "third_party", ".vscode",".github",".idea","docs","doc","docs_old",
+        "example","examples","test","tests","testing",".gitignore","config","configs",
+        "scripts",".circleci",".gitlab-ci.yml","assets","resource","resources","cmake",
+        "cmake-build-debug",".vs",".vscode"
+    };
+    for (const auto& part : p) {
+        std::string name = part.string();
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (kIgnored.count(name)) return true;
+    }
+    return false;
+}
+
+static std::string to_lower_copy(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
+}
+
+static bool is_supported_source_file(const std::filesystem::path& p)
+{
+    const std::string ext = to_lower_copy(p.extension().string());
+    return ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx"
+        || ext == ".h" || ext == ".hh" || ext == ".hpp" || ext == ".hxx"
+        || ext == ".py" || ext == ".java";
 }
 
 struct QualityTaskRow {
@@ -110,10 +167,14 @@ static void post_quality_analyze_handler(Db& db, const httplib::Request& req, ht
 
     std::string tool = body.value("tool", get_str_param_quality(req, "tool", "cppcheck"));
     std::string tools = body.value("tools", get_str_param_quality(req, "tools", tool));
+    
     std::string ref = body.value("ref", get_str_param_quality(req, "ref", "main"));
+    //std::string ref = body.value("ref", get_str_param_quality(req, "ref", "master"));
+    
     std::string mode = body.value("mode", get_str_param_quality(req, "mode", "full"));
     int max_files = std::max(0, body.value("max_files", get_int_param_quality(req, "max_files", 2000)));
     std::string config_json = body.contains("config") ? body["config"].dump() : "{}";
+    config_json = merge_config_with_path(body, req, config_json);
 
     auto result = run_static_analysis_task(db, rid, 0, full_name, ref, tools, mode, max_files, config_json);
     res.set_content(quality_result_to_json(result), kJson);
@@ -341,6 +402,7 @@ static void post_quality_task_handler(Db& db, const httplib::Request& req, httpl
     const int max_files = std::max(0, body.value("max_files", 2000));
     const std::string schedule = body.value("schedule", "manual");
     const std::string config_json = body.contains("config") ? body["config"].dump() : "{}";
+    const std::string merged_config_json = merge_config_with_path(body, req, config_json);
     const bool run_now = body.value("run_now", false);
 
     sqlite3* sdb = db.handle();
@@ -359,7 +421,7 @@ static void post_quality_task_handler(Db& db, const httplib::Request& req, httpl
     sqlite3_bind_text(stmt, 3, tools.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 4, mode.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 5, max_files);
-    sqlite3_bind_text(stmt, 6, config_json.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, merged_config_json.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 7, schedule.c_str(), -1, SQLITE_TRANSIENT);
 
     int rc = sqlite3_step(stmt);
@@ -383,7 +445,7 @@ static void post_quality_task_handler(Db& db, const httplib::Request& req, httpl
             return;
         }
         set_task_status(db, task_id, "Running");
-        auto result = run_static_analysis_task(db, rid, task_id, full_name, branch, tools, mode, max_files, config_json);
+        auto result = run_static_analysis_task(db, rid, task_id, full_name, branch, tools, mode, max_files, merged_config_json);
         out["run"] = nlohmann::json::parse(quality_result_to_json(result));
     }
 
@@ -635,6 +697,95 @@ static void get_quality_top_handler(Db& db, const httplib::Request& req, httplib
     res.set_content(out.dump(), kJson);
 }
 
+static void get_repo_tree_handler(Db& db, const httplib::Request& req, httplib::Response& res)
+{
+    const int rid = std::stoi(req.matches[1]);
+    std::string full_name;
+    if (!db_get_repo_full_name(db, rid, full_name)) {
+        res.status = 404;
+        res.set_content(R"({"error":"repo not found"})", kJson);
+        return;
+    }
+
+    const std::string ref = get_str_param_quality(req, "ref", "main");
+    const int max_items = std::max(1, std::min(50000, get_int_param_quality(req, "max", 5000)));
+
+    std::string repo_dir;
+    std::string err;
+    if (!ensure_repo_checkout_for_quality(rid, full_name, ref, repo_dir, err)) {
+        res.status = 500;
+        res.set_content(std::string("{\"error\":\"") + util::json_escape(err) + "\"}", kJson);
+        return;
+    }
+
+    nlohmann::json items = nlohmann::json::array();
+    bool truncated = false;
+
+    std::error_code ec;
+    std::vector<std::string> file_paths;
+    std::unordered_set<std::string> dir_paths;
+    const std::filesystem::path root_path(repo_dir);
+    for (auto it = std::filesystem::recursive_directory_iterator(root_path, ec);
+         it != std::filesystem::recursive_directory_iterator();
+         ++it) {
+        if (ec) break;
+        const auto& p = it->path();
+        if (is_tree_ignored_dir(p)) {
+            it.disable_recursion_pending();
+            continue;
+        }
+
+        if (!it->is_regular_file()) continue;
+        if (!is_supported_source_file(p)) continue;
+
+        std::string rel = std::filesystem::relative(p, root_path, ec).generic_string();
+        if (ec || rel.empty()) continue;
+        if (rel.rfind("../", 0) == 0) continue;
+
+        file_paths.push_back(rel);
+
+        std::filesystem::path parent = std::filesystem::path(rel).parent_path();
+        while (!parent.empty()) {
+            std::string parent_str = parent.generic_string();
+            if (!parent_str.empty()) dir_paths.insert(parent_str);
+            parent = parent.parent_path();
+        }
+    }
+
+    std::sort(file_paths.begin(), file_paths.end());
+    file_paths.erase(std::unique(file_paths.begin(), file_paths.end()), file_paths.end());
+
+    std::vector<std::string> dirs(dir_paths.begin(), dir_paths.end());
+    std::sort(dirs.begin(), dirs.end());
+
+    auto append_item = [&](const std::string& path, const char* type) {
+        if (static_cast<int>(items.size()) >= max_items) {
+            truncated = true;
+            return false;
+        }
+        nlohmann::json item;
+        item["path"] = path;
+        item["type"] = type;
+        items.push_back(std::move(item));
+        return true;
+    };
+
+    for (const auto& dir : dirs) {
+        if (!append_item(dir, "dir")) break;
+    }
+    if (!truncated) {
+        for (const auto& file : file_paths) {
+            if (!append_item(file, "file")) break;
+        }
+    }
+
+    nlohmann::json out;
+    out["items"] = items;
+    out["truncated"] = truncated;
+    out["max"] = max_items;
+    res.set_content(out.dump(), kJson);
+}
+
 static void get_quality_insights_handler(Db& db, const httplib::Request& req, httplib::Response& res)
 {
     const int rid = std::stoi(req.matches[1]);
@@ -877,6 +1028,15 @@ void register_quality_routes(httplib::Server& app, Db& db)
     app.Get(R"(/api/repos/(\d+)/quality/summary)",
             [&db](const httplib::Request& req, httplib::Response& res) {
                 try { get_quality_summary_handler(db, req, res); }
+                catch (const std::exception& e) {
+                    res.status = 500;
+                    res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJson);
+                }
+            });
+
+    app.Get(R"(/api/repos/(\d+)/tree)",
+            [&db](const httplib::Request& req, httplib::Response& res) {
+                try { get_repo_tree_handler(db, req, res); }
                 catch (const std::exception& e) {
                     res.status = 500;
                     res.set_content(std::string("{\"error\":\"") + util::json_escape(e.what()) + "\"}", kJson);

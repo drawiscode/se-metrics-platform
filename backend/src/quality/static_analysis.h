@@ -41,4 +41,10 @@ QualityAnalysisResult run_static_analysis_task(Db& db,
                                                int max_files,
                                                const std::string& config_json);
 
+bool ensure_repo_checkout_for_quality(int repo_id,
+                                      const std::string& full_name,
+                                      const std::string& ref,
+                                      std::string& repo_dir_out,
+                                      std::string& err);
+
 std::string quality_result_to_json(const QualityAnalysisResult& r);

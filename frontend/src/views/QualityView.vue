@@ -115,6 +115,27 @@
               <option value="all">全部工具</option>
             </select>
           </label>
+          <label class="field field-compact">
+            <span>分支</span>
+            <input type="text" v-model.trim="analysisBranch" placeholder="main" />
+          </label>
+          <label class="field field-compact">
+            <span>范围</span>
+            <select v-model="analysisTargetType">
+              <option value="all">全部</option>
+              <option value="dir">目录</option>
+              <option value="file">文件</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>路径</span>
+            <select v-model="analysisTargetPath">
+              <option value="">不限制</option>
+              <option v-for="item in filteredTreeItems" :key="item.path" :value="item.path">
+                {{ item.type === 'dir' ? '[目录]' : '[文件]' }} {{ item.path }}
+              </option>
+            </select>
+          </label>
           <label class="field">
             <span>模式</span>
             <select v-model="analysisMode">
@@ -130,6 +151,12 @@
         <button :disabled="busy" @click="triggerAnalysis" class="btn-primary">
           {{ busy ? '分析中' : '运行分析' }}
         </button>
+      </div>
+
+      <div class="muted" v-if="treeLoading || treeError || treeTruncated">
+        <span v-if="treeLoading">正在加载目录列表...</span>
+        <span v-else-if="treeError">目录列表加载失败：{{ treeError }}</span>
+        <span v-else-if="treeTruncated">目录列表已截断，请输入更精确的路径</span>
       </div>
 
       <div v-if="analyzeResult" class="run-result" :class="{ failed: analyzeResult.status !== 'Finished' }">
@@ -512,6 +539,14 @@ export default {
       analysisTool: 'cppcheck',
       analysisMode: 'full',
       analysisMaxFiles: 2000,
+      analysisBranch: 'main',
+      analysisTargetType: 'all',
+      analysisTargetPath: '',
+      treeItems: [],
+      treeLoading: false,
+      treeError: '',
+      treeTruncated: false,
+      treeMax: 5000,
       analyzeResult: null,
 
       // 质量总览
@@ -549,6 +584,12 @@ export default {
   },
   computed: {
     repoId() { return Number(this.id) },
+    filteredTreeItems() {
+      if (!this.treeItems.length) return []
+      const type = this.analysisTargetType
+      if (type === 'all') return this.treeItems
+      return this.treeItems.filter(item => item.type === type)
+    },
 
     scoreRingStyle() {
       const score = Math.max(0, Math.min(100, Number(this.summary.quality?.score ?? 0)))
@@ -607,8 +648,42 @@ export default {
     this.loadSummary()
     this.loadInsights()
     this.loadIssues()
+    this.loadRepoTree()
+  },
+  watch: {
+    analysisBranch() {
+      this.loadRepoTree()
+    },
+    analysisTargetType() {
+      this.ensureTargetPathValid()
+    },
   },
   methods: {
+    ensureTargetPathValid() {
+      if (!this.analysisTargetPath) return
+      const hit = this.treeItems.find(item => item.path === this.analysisTargetPath)
+      if (!hit) return
+      if (this.analysisTargetType !== 'all' && hit.type !== this.analysisTargetType) {
+        this.analysisTargetPath = ''
+      }
+    },
+    async loadRepoTree() {
+      this.treeLoading = true
+      this.treeError = ''
+      try {
+        const ref = this.analysisBranch || 'main'
+        const data = await apiGet(`/api/repos/${this.repoId}/tree?ref=${encodeURIComponent(ref)}&max=${this.treeMax}`)
+        this.treeItems = data.items ?? []
+        this.treeTruncated = Boolean(data.truncated)
+        this.ensureTargetPathValid()
+      } catch (e) {
+        this.treeError = this.formatErr(e)
+        this.treeItems = []
+        this.treeTruncated = false
+      } finally {
+        this.treeLoading = false
+      }
+    },
     async loadSummary() {
       try {
         this.summary = await apiGet(`/api/repos/${this.repoId}/quality/summary`)
@@ -636,10 +711,11 @@ export default {
         const body = {
           tool: this.analysisTool,
           tools: this.analysisTool,
-          ref: 'main',
+          ref: this.analysisBranch || 'main',
           mode: this.analysisMode,
           max_files: this.analysisMaxFiles,
         }
+        if (this.analysisTargetPath) body.path = this.analysisTargetPath
         this.analyzeResult = await apiPost(`/api/repos/${this.repoId}/quality/analyze`, body)
         await this.loadSummary()
         await this.loadInsights()
@@ -712,12 +788,13 @@ export default {
     async createTask() {
       try {
         await apiPost(`/api/repos/${this.repoId}/quality/tasks`, {
-          branch: 'main',
+          branch: this.analysisBranch || 'main',
           tools: this.analysisTool,
           mode: this.analysisMode,
           max_files: this.analysisMaxFiles,
           schedule: 'manual',
           run_now: true,
+          path: this.analysisTargetPath || undefined,
         })
         await this.loadTasks()
         await this.loadSummary()
