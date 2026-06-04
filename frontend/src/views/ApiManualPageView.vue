@@ -53,9 +53,9 @@
           </table>
         </div>
 
-        <div v-if="block.type === 'code'" class="code-block">
-          <div class="code-header">
-            <span class="code-lang">{{ block.lang || 'text' }}</span>
+        <div v-if="block.type === 'code' || block.type === 'request' || block.type === 'response'" class="code-block">
+          <div class="code-header" :class="block.type === 'response' ? 'resp-header' : (block.type === 'request' ? 'req-header' : '')">
+            <span class="code-lang">{{ block.label || block.lang || 'text' }}</span>
             <button class="copy-btn" type="button" @click="copyCode(block.code, blockKey(pageKey, sIdx, bIdx))">
               {{ lastCopiedKey === blockKey(pageKey, sIdx, bIdx) ? '已复制' : '复制' }}
             </button>
@@ -104,11 +104,13 @@
           blocks: [
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos',
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos?full_name=owner/repo',
             },
@@ -134,18 +136,41 @@
           blocks: [
             {
               type: 'text',
-              text: '用于获取仓库列表、单仓库信息以及基础快照。',
+              text: '用于获取仓库列表、单仓库信息以及基础快照，适合首页列表与仓库详情页初始化。',
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos\nGET /api/repos/{repo_id}\nGET /api/repos/{repo_id}/snapshots',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {"id": 2, "full_name": "owner/repo2", "enabled": 1},\n    {"id": 1, "full_name": "owner/repo1", "enabled": 1}\n  ]\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "id": 1,\n  "full_name": "owner/repo",\n  "enabled": 1\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {\n      "id": 10,\n      "ts": "2026-05-01T12:00:00Z",\n      "stars": 10,\n      "forks": 2,\n      "open_issues": 3,\n      "watchers": 5,\n      "pushed_at": "2026-05-01T10:30:00Z"\n    }\n  ]\n}',
             },
           ],
         },
         {
           heading: '创建/更新/删除仓库',
           blocks: [
+            {
+              type: 'text',
+              text: '创建仓库仅写入本地数据库，不会自动同步 GitHub 数据；需要单独调用同步接口。',
+            },
             {
               type: 'table',
               rows: [
@@ -155,8 +180,21 @@
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos?full_name=owner/repo\nPUT /api/repos/{repo_id}?enabled=1\nDELETE /api/repos/{repo_id}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "repo_id": 1,\n  "full_name": "owner/repo"\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "id": 1,\n  "enabled": 1\n}',
             },
             {
               type: 'note',
@@ -174,7 +212,12 @@
           heading: '核心指标',
           blocks: [
             {
+              type: 'text',
+              text: '用于展示仓库活跃度、健康分与综合评分，适合仓库概览页与仪表盘。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/metrics\nGET /api/repos/{repo_id}/health\nGET /api/repos/{repo_id}/score?tool=cppcheck',
             },
@@ -183,6 +226,24 @@
               rows: [
                 { name: 'tool', type: 'string', desc: '质量工具名称', required: '否', default: 'cppcheck' },
               ],
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "metrics": {\n    "commits_last_7d": 10,\n    "active_contributors_30d": 5,\n    "open_issues": 3\n  }\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "health": {\n    "score": 78.5,\n    "activity": 80,\n    "responsiveness": 70,\n    "quality": 85,\n    "release": 60\n  }\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "overall": 82.1,\n  "weights": {"health": 0.6, "quality": 0.4},\n  "health": {"score": 78.5},\n  "quality": {"score": 85.2},\n  "tool": "cppcheck"\n}',
             },
           ],
         },
@@ -196,7 +257,12 @@
           heading: '活动与 CI 数据',
           blocks: [
             {
+              type: 'text',
+              text: '用于展示提交趋势、CI 运行历史与健康度。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/activity?days=30\nGET /api/repos/{repo_id}/ci/runs?limit=50\nGET /api/repos/{repo_id}/ci/health\nGET /api/repos/{repo_id}/ci/trend?days=14',
             },
@@ -210,6 +276,24 @@
                 { name: 'conclusion', type: 'string', desc: 'CI 结论过滤', required: '否', default: '-' },
               ],
             },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {"date": "2026-05-01", "commits": 5}\n  ]\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {"run_id": 123, "name": "CI", "status": "completed", "conclusion": "success"}\n  ]\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "repo_id": 1,\n  "health_level": "warning",\n  "score": 76.5,\n  "failure_rate_24h": 0.2\n}',
+            },
           ],
         },
       ],
@@ -222,13 +306,24 @@
           heading: '接口说明',
           blocks: [
             {
+              type: 'text',
+              text: '用于展示仓库简介与更新时间，通常在仓库详情页展示。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/intro',
             },
             {
               type: 'note',
               text: '仓库介绍在首次同步成功后生成。',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "repo_id": 1,\n  "intro_text": "仓库简介...",\n  "intro_updated_at": "2026-05-01 12:00:00"\n}',
             },
           ],
         },
@@ -241,6 +336,10 @@
         {
           heading: '全量/增量同步',
           blocks: [
+            {
+              type: 'text',
+              text: '用于同步 GitHub 上的 issues/pulls/commits/releases，首次推荐使用 full。',
+            },
             {
               type: 'table',
               rows: [
@@ -257,14 +356,24 @@
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/sync?mode=incremental',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              code: '{\n  "ok": true,\n  "repo_id": 1,\n  "issues_upserted": 120,\n  "pulls_upserted": 20,\n  "commits_upserted": 200,\n  "releases_upserted": 2\n}',
             },
           ],
         },
         {
           heading: '提交文件同步',
           blocks: [
+            {
+              type: 'text',
+              text: '用于生成热点文件/目录需要的 commit_files 数据。',
+            },
             {
               type: 'table',
               rows: [
@@ -273,8 +382,15 @@
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/sync/commit_files?limit=30',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "repo_id": 1,\n  "limit_commits": 30,\n  "total_files_processed": 2345\n}',
             },
           ],
         },
@@ -288,6 +404,10 @@
           heading: '热点文件与目录',
           blocks: [
             {
+              type: 'text',
+              text: '基于 commit_files 统计热点文件/目录，可用于风险与代码治理。',
+            },
+            {
               type: 'table',
               rows: [
                 { name: 'days', type: 'int', desc: '统计时间窗口(天)', required: '否', default: '0' },
@@ -297,8 +417,15 @@
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/hotfiles?days=30&top=20\nGET /api/repos/{repo_id}/hotdirs?days=30&top=10&dir_depth=2',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {"filename": "src/main.cpp", "commits": 12, "additions": 80, "deletions": 20}\n  ]\n}',
             },
           ],
         },
@@ -312,6 +439,10 @@
           heading: '专家排名',
           blocks: [
             {
+              type: 'text',
+              text: '基于 PageRank 计算贡献者影响力，支持全局与模块内专家排行。',
+            },
+            {
               type: 'table',
               rows: [
                 { name: 'top', type: 'int', desc: '返回数量', required: '否', default: '20' },
@@ -320,14 +451,25 @@
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/experts?top=20\nGET /api/repos/{repo_id}/experts/module?dir=src/ai&top=10',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "repo_id": 1,\n  "items": [\n    {"author": "alice", "score": 0.32}\n  ]\n}',
             },
           ],
         },
         {
           heading: '构建专家图谱',
           blocks: [
+            {
+              type: 'text',
+              text: '当提交/PR 数据变更较大时建议手动重建。',
+            },
             {
               type: 'code',
               lang: 'http',
@@ -345,23 +487,42 @@
           heading: '启动分析与查询问题',
           blocks: [
             {
+              type: 'text',
+              text: '用于触发静态分析并查看问题列表、汇总与洞察结果。',
+            },
+            {
               type: 'table',
               rows: [
                 { name: 'tool/tools', type: 'string', desc: '工具名称或列表', required: '否', default: 'cppcheck' },
                 { name: 'ref', type: 'string', desc: '分支或提交', required: '否', default: 'main' },
                 { name: 'mode', type: 'string', desc: 'full 或 incremental', required: '否', default: 'full' },
                 { name: 'max_files', type: 'int', desc: '最大文件数', required: '否', default: '2000' },
+                { name: 'path', type: 'string', desc: '可选：指定文件或目录', required: '否', default: '-' },
               ],
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/quality/analyze\n\nBody:\n{\n  "tool": "cppcheck",\n  "ref": "main"\n}',
             },
             {
               type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "status": "Finished",\n  "run_id": 42,\n  "analyzed_files": 156,\n  "issues_new": 12,\n  "issues_fixed": 5\n}',
+            },
+            {
+              type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/quality/issues?status=active&limit=100\nGET /api/repos/{repo_id}/quality/summary?tool=cppcheck\nGET /api/repos/{repo_id}/quality/insights',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {\n      "id": 1,\n      "tool": "cppcheck",\n      "file_path": "src/main.cpp",\n      "line": 42,\n      "severity": "error",\n      "message": "Uninitialized variable: p"\n    }\n  ],\n  "limit": 100,\n  "offset": 0\n}',
             },
           ],
         },
@@ -375,14 +536,25 @@
           heading: '任务管理与运行',
           blocks: [
             {
+              type: 'text',
+              text: '用于创建可复用的分析任务，并按需运行。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/quality/tasks\nGET /api/repos/{repo_id}/quality/tasks?limit=50\nPOST /api/quality/tasks/{task_id}/run',
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/quality/runs?limit=20\nGET /api/repos/{repo_id}/quality/trend?limit=10\nGET /api/repos/{repo_id}/quality/top?by=file&limit=20\nGET /api/repos/{repo_id}/quality/insights',
+            },
+            {
+              type: 'code',
+              lang: 'json',
+              code: '{\n  "task_id": 12,\n  "repo_id": 1,\n  "status": "Pending",\n  "tools": "cppcheck",\n  "mode": "full"\n}',
             },
           ],
         },
@@ -396,14 +568,26 @@
           heading: '基线与问题状态',
           blocks: [
             {
+              type: 'text',
+              text: '用于设置质量门禁阈值，以及标记问题状态。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/quality/baseline\nPUT /api/repos/{repo_id}/quality/baseline\n\nBody:\n{\n  "min_score": 85\n}',
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'PUT /api/quality/issues/{issue_id}\n\nBody:\n{\n  "status": "fixed"\n}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "configured": true,\n  "min_score": 85,\n  "max_new_issues": 0,\n  "max_error_issues": 0\n}',
             },
           ],
         },
@@ -412,6 +596,7 @@
           blocks: [
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'DELETE /api/quality/tasks/{task_id}\nDELETE /api/quality/runs/{run_id}\nDELETE /api/quality/issues/{issue_id}',
             },
@@ -432,6 +617,7 @@
           blocks: [
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/repos/{repo_id}/tasks?status=open&limit=200\nPOST /api/repos/{repo_id}/tasks\n\nBody:\n{\n  "title": "Add tests",\n  "priority": "P1",\n  "reason": "Coverage"\n}',
             },
@@ -442,6 +628,7 @@
           blocks: [
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'PATCH /api/tasks/{task_id}\n\nBody:\n{\n  "status": "done"\n}\n\nDELETE /api/tasks/{task_id}',
             },
@@ -457,9 +644,20 @@
           heading: '生成与查询',
           blocks: [
             {
+              type: 'text',
+              text: '生成周报通常耗时较长，建议异步提示用户等待。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/report/generate\nGET /api/repos/{repo_id}/reports?limit=10\nGET /api/repos/{repo_id}/reports/{report_id}\nGET /api/repos/{repo_id}/report/latest',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "id": 5,\n  "repo_id": 1,\n  "report_text": "本周提交 12 次...",\n  "created_at": "2026-05-01 12:00:00"\n}',
             },
           ],
         },
@@ -473,9 +671,20 @@
           heading: '知识库构建与检索',
           blocks: [
             {
+              type: 'text',
+              text: '建议先构建知识库，再进行检索与问答。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/knowledge/build\nGET /api/repos/{repo_id}/knowledge/search?q=cache&top=10',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "repo_id": 1,\n  "result": {\n    "issues_indexed": 10,\n    "pulls_indexed": 5,\n    "commits_indexed": 20,\n    "releases_indexed": 1,\n    "embeddings_generated": 100\n  }\n}',
             },
           ],
         },
@@ -484,8 +693,16 @@
           blocks: [
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/ai/ask\n\nBody:\n{\n  "repo_id": 1,\n  "question": "What is the main architecture?"\n}\n\nGET /api/ai/conversations?repo_id=1&limit=20\nGET /api/ai/conversations/{id}',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "answer": "...",\n  "evidence": [\n    {"source_type": "issue", "source_id": "123", "title": "...", "snippet": "..."}\n  ],\n  "model": "deepseek-chat",\n  "success": true\n}',
+              code: '{\n  "answer": "...",\n  "evidence": [\n    {"source_type": "issue", "source_id": "123", "title": "...", "snippet": "..."}\n  ],\n  "model": "deepseek-chat",\n  "success": true\n}',
             },
           ],
         },
@@ -499,6 +716,10 @@
           heading: '索引构建',
           blocks: [
             {
+              type: 'text',
+              text: '构建代码索引用于语义检索与 AI 问答的代码片段支持。',
+            },
+            {
               type: 'table',
               rows: [
                 { name: 'ref', type: 'string', desc: '分支或提交', required: '否', default: 'main' },
@@ -509,8 +730,15 @@
             },
             {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/code/index?ref=main&mode=full',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "ok": true,\n  "repo_id": 1,\n  "repo_head_sha": "abcdef",\n  "indexed_files": 120,\n  "indexed_chunks": 400,\n  "embeddings_generated": 400\n}',
             },
           ],
         },
@@ -524,9 +752,20 @@
           heading: '风险扫描与告警',
           blocks: [
             {
+              type: 'text',
+              text: '扫描仓库风险事件并提供告警列表与摘要。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'POST /api/repos/{repo_id}/risk/scan?days=30\nGET /api/repos/{repo_id}/risk/alerts?status=open&limit=50\nGET /api/repos/{repo_id}/risk/alerts/summary?days=7',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {"alert_type": "ci_pipeline_unhealthy", "severity": "warning", "status": "open"}\n  ]\n}',
             },
           ],
         },
@@ -540,9 +779,20 @@
           heading: '日志与统计',
           blocks: [
             {
+              type: 'text',
+              text: '用于查看系统操作日志与 AI 调用统计，便于运维排查。',
+            },
+            {
               type: 'code',
+              label: '请求示例',
               lang: 'http',
               code: 'GET /api/system/logs/operations?limit=100\nGET /api/system/logs/ai-usage?repo_id=1&limit=50\nGET /api/system/logs/stats/today',
+            },
+            {
+              type: 'code',
+              label: '预期响应',
+              lang: 'json',
+              code: '{\n  "items": [\n    {"id": 1, "operation_type": "repo.sync", "status": "ok", "duration_ms": 1200}\n  ]\n}',
             },
           ],
         },
@@ -712,8 +962,16 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: #ECFEFF;
+    background: #f0f9ff;
     font-size: 12px;
+  }
+
+  .req-header {
+    background: #fef3c7;
+  }
+
+  .resp-header {
+    background: #d1fae5;
   }
 
   .code-lang {

@@ -511,14 +511,14 @@ static void post_quality_task_run_handler(Db& db, const httplib::Request& req, h
 {
     const int task_id = std::stoi(req.matches[1]);
     QualityTaskRow task;
-    if (!db_get_quality_task(db, task_id, task)) {
+    if (!db_get_quality_task(db, task_id, task)) {// task not found
         res.status = 404;
         res.set_content(R"({"error":"quality task not found"})", kJson);
         return;
     }
 
     std::string full_name;
-    if (!db_get_repo_full_name(db, task.repo_id, full_name)) {
+    if (!db_get_repo_full_name(db, task.repo_id, full_name)) {// repo not founds
         res.status = 404;
         res.set_content(R"({"error":"repo not found"})", kJson);
         return;

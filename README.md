@@ -43,7 +43,20 @@ se-metrics-platform/
 
 ### 可选依赖
 
-- **cppcheck**：代码质量分析功能需要，[下载地址](https://cppcheck.sourceforge.io/)，安装后在 `config.env` 中配置 `CPPCHECK_BIN` 路径
+以下外部工具用于代码质量分析功能，按需安装即可：
+
+| 工具 | 语言 | 说明 | 获取方式 |
+|------|------|------|----------|
+| **cppcheck** | C/C++ | 静态缺陷分析 | [下载](https://cppcheck.sourceforge.io/) |
+| **clang-tidy** | C/C++ | Clang 诊断分析 | 随 LLVM/Clang 安装 |
+| **cpplint** | C/C++ | Google 风格检查 | `pip install cpplint` |
+| **flawfinder** | C/C++ | 安全漏洞扫描 | `pip install flawfinder` |
+| **pylint** | Python | Python 代码质量 | `pip install pylint` |
+| **checkstyle** | Java | Java 代码风格 | [下载](https://checkstyle.org/) 或 `brew install checkstyle` |
+
+安装后在 `config/config.env` 中配置对应 `*_BIN` 路径，并添加到 `QUALITY_ALL_TOOLS` 即可启用。
+
+未安装的工具会自动跳过，不影响其他功能正常使用。
 
 ### 如何更新
 
@@ -127,6 +140,8 @@ copy start.bat release\
 copy start.sh release\
 copy README.md release\
 ```
+
+> **注意**：Python（pylint）和 Java（checkstyle）分析工具不会被自动打包。用户需要自行安装对应工具并在 `config.env` 中配置路径。`start.bat` / `start.sh` 启动时会自动检测已配置工具的可用性。
 
 ---
 ## 环境配置相关
