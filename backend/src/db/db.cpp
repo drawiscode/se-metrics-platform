@@ -507,4 +507,14 @@ void Db::init_schema()
     } catch (const std::exception& e) {
         std::cerr << "[db] quality_issues index/backfill failed: " << e.what() << "\n";
     }
+
+    // ---- 2.6 多轮对话: ai_conversations 加入 thread_id ----
+    if (!has_column(db_, "ai_conversations", "thread_id")) {
+        try {
+            exec("ALTER TABLE ai_conversations ADD COLUMN thread_id INTEGER;");
+            exec("CREATE INDEX IF NOT EXISTS idx_ai_conv_thread ON ai_conversations(thread_id, created_at);");
+        } catch (const std::exception& e) {
+            std::cerr << "[db] ai_conversations thread_id migration failed: " << e.what() << "\n";
+        }
+    }
 }

@@ -57,8 +57,8 @@ if %MISSING_DLL%==1 (
     echo.
 )
 
-:: 检查外部质量分析工具（可选，用于代码质量分析功能）
-echo [检查] 外部质量分析工具...
+:: Check external quality analysis tools (optional)
+echo [CHECK] External quality analysis tools...
 set TOOL_WARN=0
 
 :: C/C++ 工具
@@ -76,9 +76,9 @@ call :CheckTool "checkstyle" "CHECKSTYLE_BIN" TOOL_WARN
 
 if %TOOL_WARN%==1 (
     echo.
-    echo [提示] 部分质量分析工具未安装或未配置，相应语言的分析功能将不可用。
-    echo        如需完整功能，请安装相应工具并在 config\config.env 中配置路径。
-    echo        详见 README.md 可选依赖章节。
+    echo [WARNING] Some quality tools are not installed or configured.
+    echo          Install missing tools and set paths in config\config.env.
+    echo          See README.md optional dependencies section.
     echo.
 )
 goto :EndToolCheck
@@ -87,48 +87,48 @@ goto :EndToolCheck
 setlocal
 set TOOL_NAME=%~1
 set ENV_NAME=%~2
-:: 从 config.env 读取配置值（简单解析 KEY=VALUE）
+:: Read tool path from config.env (KEY=VALUE format)
 set TOOL_PATH=
 if exist "config\config.env" (
     for /f "usebackq tokens=1,* delims==" %%A in ("config\config.env") do (
         if "%%A"=="%ENV_NAME%" set TOOL_PATH=%%B
     )
 )
-:: 如果配置为空或默认值（没有具体路径），跳过检查
+:: Skip if empty or matches default tool name
 if "%TOOL_PATH%"=="" goto :EOF
 if /i "%TOOL_PATH%"=="%TOOL_NAME%" goto :EOF
-:: 检查是否包含路径特征（盘符 : 或分隔符 \ /）
+:: Check if contains path-like characters (drive letter : or separator \ /)
 set HAS_PATH=0
 echo %TOOL_PATH% | findstr /c:":" >nul && set HAS_PATH=1
 echo %TOOL_PATH% | findstr /c:"\" >nul && set HAS_PATH=1
 echo %TOOL_PATH% | findstr /c:"/" >nul && set HAS_PATH=1
 if %HAS_PATH%==0 (
-    :: 不含路径特征，可能只是命令名（依赖 PATH），检查 PATH 中是否存在
+    :: No path-like chars, check if just a command name in PATH
     where %TOOL_NAME% >nul 2>&1
     if %errorlevel% neq 0 (
-        echo [警告] %TOOL_NAME% 未找到（配置: %TOOL_PATH%），请在 config.env 中设置 %ENV_NAME% 为完整路径
+        echo [WARN] %TOOL_NAME% not found (config: %TOOL_PATH%), set %ENV_NAME% to full path in config.env
         endlocal & set %~3=1
     ) else (
-        echo [ OK ] %TOOL_NAME% 已就绪（PATH）
+        echo [ OK ] %TOOL_NAME% ready (PATH)
     )
 ) else (
-    :: 是完整路径，检查文件是否存在
+    :: Full path provided, check if file exists
     if not exist "%TOOL_PATH%" (
-        echo [警告] %TOOL_NAME% 路径无效: %TOOL_PATH%
+        echo [WARN] %TOOL_NAME% path invalid: %TOOL_PATH%
         endlocal & set %~3=1
     ) else (
-        echo [ OK ] %TOOL_NAME% 已就绪
+        echo [ OK ] %TOOL_NAME% ready
     )
 )
 goto :EOF
 
 :EndToolCheck
 
-echo [启动] 正在启动 DevInsight 后端服务...
+echo [启动] Starting DevInsight backend...
 echo.
-echo   前端页面: http://localhost:8080
-echo   API 接口: http://localhost:8080/api/
-echo   按 Ctrl+C 停止服务
+echo   Frontend: http://localhost:8080
+echo   API:      http://localhost:8080/api/
+echo   Press Ctrl+C to stop
 echo.
 echo ============================================
 echo.

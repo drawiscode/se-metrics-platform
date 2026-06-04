@@ -509,36 +509,43 @@ static std::string build_context(Db& db, int repo_id,
 }
 
 // ============================================================
-// 辅助: 保存对话记录到数据库
+// 辅助: 保存对话记录到数据库（返回自增 ID）
 // ============================================================
-static void save_conversation(Db& db, int repo_id,
+static int save_conversation(Db& db, int repo_id,
                               const std::string& question,
                               const std::string& answer,
                               const std::string& evidence_json,
-                              const std::string& model)
+                              const std::string& model,
+                              int thread_id = 0)
 {
     sqlite3* sdb = db.handle();
     sqlite3_stmt* stmt = nullptr;
     const char* sql =
-        "INSERT INTO ai_conversations(repo_id, question, answer, evidence_json, model) "
-        "VALUES (?1, ?2, ?3, ?4, ?5);";
+        "INSERT INTO ai_conversations(repo_id, question, answer, evidence_json, model, thread_id) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6);";
+    int new_id = 0;
     if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int (stmt, 1, repo_id);
         sqlite3_bind_text(stmt, 2, question.c_str(),      -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 3, answer.c_str(),         -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 4, evidence_json.c_str(),  -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 5, model.c_str(),          -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
+        if (thread_id > 0) sqlite3_bind_int(stmt, 6, thread_id);
+        else sqlite3_bind_null(stmt, 6);
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            new_id = static_cast<int>(sqlite3_last_insert_rowid(sdb));
+        }
     }
     if (stmt) sqlite3_finalize(stmt);
+    return new_id;
 }
 
 // ============================================================
 // 辅助: 调用 LLM API（兼容 OpenAI Chat Completions 格式）
-// 支持 OpenAI / DeepSeek / 本地兼容服务
+// 支持多轮对话 — messages 已包含完整历史
 // ============================================================
-static std::string call_llm(const std::string& system_prompt,
-                            const std::string& user_message,
+static std::string call_llm(const nlohmann::json& messages,
+                            const std::string& system_prompt,
                             const std::string& api_base,
                             const std::string& api_key,
                             const std::string& model,
@@ -559,24 +566,23 @@ static std::string call_llm(const std::string& system_prompt,
 
     auto url = parse_url(api_base);
     if (url.host.empty()) {
-        error_out = "LLM_API_BASE URL 无效";
+        error_out = "LLM_API_BASE URL invalid";
         const auto end = std::chrono::steady_clock::now();
         duration_ms_out = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count());
         return "";
     }
 
-    // 构造请求体
-    const std::string safe_system_prompt = sanitize_utf8_lossy(system_prompt);
-    const std::string safe_user_message = sanitize_utf8_lossy(user_message);
     const std::string safe_model = sanitize_utf8_lossy(model);
 
     nlohmann::json body;
     body["model"] = safe_model;
-    body["messages"] = nlohmann::json::array({
-        {{"role", "system"}, {"content", safe_system_prompt}},
-        {{"role", "user"},   {"content", safe_user_message}}
-    });
+    body["messages"] = messages;
     body["max_tokens"] = 2048;
+    try {
+        int mt = std::stoi(util::get_env("LLM_MAX_TOKENS", "2048"));
+        body["max_tokens"] = std::max(256, std::min(16384, mt));
+    } catch (...) { body["max_tokens"] = 2048; }
+    
     body["temperature"] = 0.3;
 
     std::string body_str = body.dump();
@@ -675,11 +681,85 @@ static std::string call_llm(const std::string& system_prompt,
 }
 
 // ============================================================
-// 公共接口: 完整 RAG 问答
+// 2.6 多轮对话: 加载线程历史消息
 // ============================================================
-AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
+static std::vector<std::pair<std::string, std::string>>
+load_thread_history(Db& db, int thread_id, int max_turns)
+{
+    std::vector<std::pair<std::string, std::string>> history;
+    if (thread_id <= 0 || max_turns <= 0) return history;
+
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    // 取最近 N*2 条消息（N 轮= N 个 Q + N 个 A）
+    const char* sql =
+        "SELECT question, answer FROM ai_conversations "
+        "WHERE thread_id=?1 ORDER BY id DESC LIMIT ?2;";
+    int limit = max_turns * 2;
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        return history;
+
+    sqlite3_bind_int(stmt, 1, thread_id);
+    sqlite3_bind_int(stmt, 2, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        auto q = sqlite3_column_text(stmt, 0);
+        auto a = sqlite3_column_text(stmt, 1);
+        history.emplace_back(
+            q ? reinterpret_cast<const char*>(q) : "",
+            a ? reinterpret_cast<const char*>(a) : ""
+        );
+    }
+    sqlite3_finalize(stmt);
+    // 反转: 最早的消息在 front
+    std::reverse(history.begin(), history.end());
+    return history;
+}
+
+// ============================================================
+// 2.6 多轮对话: 创建新对话线程
+// ============================================================
+int create_conversation_thread(Db& db, int repo_id, const std::string& title)
+{
+    // 直接用 ai_conversations 的 thread_id 自增策略：
+    // 查找当前 repo 下最大 thread_id + 1 作为新 thread_id
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    int max_id = 0;
+    const char* sql = "SELECT COALESCE(MAX(thread_id), 0) FROM ai_conversations WHERE thread_id IS NOT NULL;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            max_id = sqlite3_column_int(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return max_id + 1;
+}
+
+// ============================================================
+// 2.6 多轮对话: 删除对话线程
+// ============================================================
+bool delete_conversation_thread(Db& db, int thread_id)
+{
+    if (thread_id <= 0) return false;
+    sqlite3* sdb = db.handle();
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "DELETE FROM ai_conversations WHERE thread_id=?1;";
+    if (sqlite3_prepare_v2(sdb, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int(stmt, 1, thread_id);
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return rc == SQLITE_DONE;
+}
+
+// ============================================================
+// 公共接口: 完整 RAG 问答 (支持多轮对话)
+// ============================================================
+AiAnswer ask_question(Db& db, int repo_id, const std::string& question,
+                      int thread_id)
 {
     AiAnswer answer;
+    answer.thread_id = thread_id;
 
     const bool global_scope = repo_id <= 0;
 
@@ -688,7 +768,7 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
         answer.answer = build_repo_inventory_answer(repos);
         answer.model = "local-db";
         answer.success = true;
-        save_conversation(db, 0, question, answer.answer, "[]", answer.model);
+        answer.conversation_id = save_conversation(db, 0, question, answer.answer, "[]", answer.model, thread_id);
         return answer;
     }
 
@@ -696,9 +776,8 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
     if (!global_scope) {
         full_name = get_repo_full_name(db, repo_id);
         if (full_name.empty()) {
-
-            std::cerr << "仓库 ID " << repo_id << " 不存在" << std::endl; // 调试用
-            answer.error = "仓库不存在";
+            std::cerr << "Repo ID " << repo_id << " not found" << std::endl;
+            answer.error = "repo not found";
             return answer;
         }
     }
@@ -714,42 +793,67 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
 
     // 2. 组装 Prompt
     const std::string current_date = get_current_date_ymd();
+
+    // 2.1 读取历史轮数配置
+    int max_turns = 5;
+    try {
+        std::string env_val = util::get_env("LLM_MAX_HISTORY_TURNS", "5");
+        max_turns = std::max(1, std::min(20, std::stoi(env_val)));
+    } catch (...) { max_turns = 5; }
+
+    // 2.2 加载线程历史
+    auto history = load_thread_history(db, thread_id, max_turns);
+
+    // 2.3 组装 system prompt
     std::string system_prompt = build_system_prompt(full_name, global_scope, current_date);
+
+    // 2.4 构建用户消息（含上下文 + 问题）
     std::string context = build_context(db, repo_id, evidence);
     if (contributor_question) {
-        // Keep AI-generated style while grounding with structured contributor stats.
         context += "\n" + build_contributor_context(full_name, repo_id, contributors) + "\n";
     }
-    std::string user_message = context + "## 问题\n" + question;
 
-    // 4. 读取 LLM 配置（环境变量）
+    // 2.5 构建完整 messages 数组
+    nlohmann::json messages = nlohmann::json::array();
+    messages.push_back({{"role", "system"}, {"content", sanitize_utf8_lossy(system_prompt)}});
+
+    // 加载历史消息
+    for (const auto& [q, a] : history) {
+        messages.push_back({{"role", "user"},      {"content", sanitize_utf8_lossy(q)}});
+        messages.push_back({{"role", "assistant"},  {"content", sanitize_utf8_lossy(a)}});
+    }
+
+    // 最后追加当前问题
+    std::string user_message = context + "## Question\n" + question;
+    messages.push_back({{"role", "user"}, {"content", sanitize_utf8_lossy(user_message)}});
+
+    // 3. 读取 LLM 配置（环境变量）
     std::string api_base = util::get_env("LLM_API_BASE", "https://api.openai.com");
     std::string api_key  = util::get_env("LLM_API_KEY",  "");
     std::string model    = util::get_env("LLM_MODEL",    "gpt-3.5-turbo");
 
     if (api_key.empty()) {
-        answer.error = "未配置 LLM_API_KEY 环境变量，请在 config.env 中设置";
+        answer.error = "LLM_API_KEY not configured, please set in config.env";
         return answer;
     }
 
-    // 3. 调用 LLM
+    // 4. 调用 LLM
     std::string llm_error;
     int prompt_tokens = 0;
     int completion_tokens = 0;
     int total_tokens = 0;
     double cost_usd = 0.0;
     int duration_ms = 0;
-    std::string llm_response = call_llm(system_prompt, user_message,
+    std::string llm_response = call_llm(messages, system_prompt,
                                         api_base, api_key, model, llm_error,
                                         prompt_tokens, completion_tokens, total_tokens,
                                         cost_usd, duration_ms);
-    // std::cerr << "Raw LLM Response: " << llm_response << std::endl;
     if (!llm_error.empty()) {
         answer.error = llm_error;
         return answer;
     }
 
-    // 4. 组装返回结果
+    // 5. 组装返回结果
     answer.answer  = llm_response;
     answer.model   = model;
     answer.prompt_tokens = prompt_tokens;
@@ -769,9 +873,9 @@ AiAnswer ask_question(Db& db, int repo_id, const std::string& question)
         answer.evidence.push_back(ev);
     }
 
-    // 5. 保存对话记录
+    // 6. 保存对话记录（含 thread_id）
     std::string evidence_json = knowledge_chunks_to_json(evidence);
-    save_conversation(db, repo_id, question, llm_response, evidence_json, model);
+    answer.conversation_id = save_conversation(db, repo_id, question, llm_response, evidence_json, model, thread_id);
 
     return answer;
 }
@@ -783,6 +887,8 @@ std::string ai_answer_to_json(const AiAnswer& a)
 {
     nlohmann::json j;
     j["success"] = a.success;
+    j["thread_id"] = a.thread_id;
+    j["conversation_id"] = a.conversation_id;
 
     if (!a.error.empty()) {
         j["error"] = a.error;
@@ -815,6 +921,5 @@ std::string ai_answer_to_json(const AiAnswer& a)
         });
     }
 
-    // 输出 UTF-8 原文，由 Content-Type charset=utf-8 保证编码正确
     return j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
