@@ -1,0 +1,453 @@
+﻿{
+    "failed":  0,
+    "total":  64,
+    "details":  [
+                    {
+                        "Name":  "Health check returns ok",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Create returns repo_id",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Duplicate create returns 409",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Missing param returns 400",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Repo list not empty",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Contains test repo",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Repo ID matches",
+                        "Status":  "PASS",
+                        "Expected":  1,
+                        "Actual":  1,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Repo name matches",
+                        "Status":  "PASS",
+                        "Expected":  "octocat/Hello-World",
+                        "Actual":  "octocat/Hello-World",
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Non-existent repo returns 404",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Sync returns ok",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Sync repo_id matches",
+                        "Status":  "PASS",
+                        "Expected":  1,
+                        "Actual":  1,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Issues list",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Pulls list",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Commits list",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Releases list",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Snapshots list",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Metrics returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "commits_last_7d exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "active_contributors_30d exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "open_issues exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Health returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Health score in 0-100",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "activity score exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Score returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Overall score in 0-100",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Hotfiles returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Hotdirs returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Activity returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Knowledge build returns ok",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Knowledge build has result",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Knowledge search returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "AI ask returns success",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "AI ask has answer",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Conversation history returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "CI Runs returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "CI Health returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "CI health_level exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "CI Trend returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Expert build returns ok",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Expert list returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Module expert returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Report generate response exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Report history returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Risk scan response exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Risk alerts returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Risk summary returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Operation logs returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Operation log has time",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Operation log has type",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "AI usage logs returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Stats has today_request_count",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Stats has today_error_count",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Stats has today_ai_call_count",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Nonexistent route returns 404",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Code index returns ok",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Quality analyze response exists",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Quality issues returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Quality summary returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Quality score in 0-100",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Quality top returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Quality trend returns",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Delete repo returns ok",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    },
+                    {
+                        "Name":  "Query deleted repo returns 404",
+                        "Status":  "PASS",
+                        "Expected":  true,
+                        "Actual":  true,
+                        "Detail":  ""
+                    }
+                ],
+    "passed":  64,
+    "base_url":  "http://127.0.0.1:18080",
+    "skipped":  1,
+    "pass_rate":  100,
+    "timestamp":  "2026-06-10 00:51:38",
+    "test_repo":  "octocat/Hello-World"
+}
