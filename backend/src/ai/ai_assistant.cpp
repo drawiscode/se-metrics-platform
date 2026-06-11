@@ -540,6 +540,16 @@ static int save_conversation(Db& db, int repo_id,
     return new_id;
 }
 
+static int get_env_seconds_clamped(const char* name, int default_value, int min_value, int max_value)
+{
+    try {
+        const std::string raw = util::get_env(name, std::to_string(default_value));
+        return std::max(min_value, std::min(max_value, std::stoi(raw)));
+    } catch (...) {
+        return default_value;
+    }
+}
+
 // ============================================================
 // 辅助: 调用 LLM API（兼容 OpenAI Chat Completions 格式）
 // 支持多轮对话 — messages 已包含完整历史
@@ -601,13 +611,17 @@ static std::string call_llm(const nlohmann::json& messages,
     headers.emplace("Authorization", "Bearer " + api_key);
 
     std::string response_text;
+    const int connect_timeout_sec = get_env_seconds_clamped("LLM_CONNECT_TIMEOUT_SECONDS", 30, 1, 600);
+    const int read_timeout_sec = get_env_seconds_clamped("LLM_READ_TIMEOUT_SECONDS", 180, 10, 1800);
+    const int write_timeout_sec = get_env_seconds_clamped("LLM_WRITE_TIMEOUT_SECONDS", 180, 10, 1800);
 
     // 根据协议选择 SSL 或普通 HTTP 客户端
 #if defined(CPPHTTPLIB_OPENSSL_SUPPORT) || defined(HTTPLIB_OPENSSL_SUPPORT)
     if (url.use_ssl) {
         httplib::SSLClient cli(url.host, url.port);
-        cli.set_read_timeout(60, 0);
-        cli.set_connection_timeout(10, 0);
+        cli.set_connection_timeout(connect_timeout_sec, 0);
+        cli.set_read_timeout(read_timeout_sec, 0);
+        cli.set_write_timeout(write_timeout_sec, 0);
 
         auto res = cli.Post(path, headers, body_str, "application/json");
         if (!res) {
@@ -627,8 +641,9 @@ static std::string call_llm(const nlohmann::json& messages,
 #endif
     {
         httplib::Client cli(url.host, url.port);
-        cli.set_read_timeout(60, 0);
-        cli.set_connection_timeout(10, 0);
+        cli.set_connection_timeout(connect_timeout_sec, 0);
+        cli.set_read_timeout(read_timeout_sec, 0);
+        cli.set_write_timeout(write_timeout_sec, 0);
 
         auto res = cli.Post(path, headers, body_str, "application/json");
         if (!res) {

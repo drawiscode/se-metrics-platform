@@ -98,12 +98,42 @@ else()
     target_link_libraries(devinsight_backend PRIVATE pthread)
 endif()
 
+include(CTest)
+
+if(BUILD_TESTING)
+    add_executable(quality_score_unit_tests
+        test/unit/test_quality_score.cpp
+        src/common/util.cpp
+        src/db/db.cpp
+        src/quality/quality_score.cpp
+    )
+
+    target_include_directories(quality_score_unit_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+
+    if(SQLite3_FOUND)
+        target_link_libraries(quality_score_unit_tests PRIVATE SQLite::SQLite3)
+    else()
+        target_link_libraries(quality_score_unit_tests PRIVATE ${SQLITE3_LIB})
+    endif()
+
+    add_test(NAME quality_score_unit_tests COMMAND quality_score_unit_tests)
+endif()
+
 # ---- 编译选项 ----
 if(MSVC)
     target_compile_options(devinsight_backend PRIVATE /W4 /utf-8)
     target_compile_definitions(devinsight_backend PRIVATE _CRT_SECURE_NO_WARNINGS)
+    if(BUILD_TESTING)
+        target_compile_options(quality_score_unit_tests PRIVATE /W4 /utf-8)
+        target_compile_definitions(quality_score_unit_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
 else()
     target_compile_options(devinsight_backend PRIVATE -Wall -Wextra -Wpedantic)
+    if(BUILD_TESTING)
+        target_compile_options(quality_score_unit_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
 endif()
 
 # ---- 可选: 额外 include/lib 路径 ----
